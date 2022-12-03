@@ -1,10 +1,12 @@
 use crate::{
     error::{Error, Result},
+    olemethoddata::ole_methods_from_typeinfo,
     oletypelibdata::typelib_file,
     util::{
         get_class_id, ole_initialized, ole_typedesc2val, reg_enum_key, reg_get_val2, reg_open_key,
         ToWide,
     },
+    OleMethodData,
 };
 use std::{ffi::OsStr, ptr};
 use windows::{
@@ -15,7 +17,8 @@ use windows::{
         System::{
             Com::{
                 CoCreateInstance, IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID,
-                CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, TKIND_ALIAS, TYPEKIND,
+                CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, INVOKE_FUNC, INVOKE_PROPERTYGET,
+                INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND,
             },
             Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
             Registry::{RegCloseKey, HKEY, HKEY_CLASSES_ROOT},
@@ -35,18 +38,21 @@ impl OleTypeData {
         let flags = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER;
         let dispatch: IDispatch = unsafe { CoCreateInstance(&app_clsid, None, flags)? };
         let typeinfo = unsafe { dispatch.GetTypeInfo(0, GetUserDefaultLCID())? };
-        Ok(OleTypeData { dispatch: Some(dispatch), typeinfo })
+        Ok(OleTypeData {
+            dispatch: Some(dispatch),
+            typeinfo,
+        })
     }
     pub fn from_typelib_and_oleclass<S: AsRef<OsStr>>(
-        oleclass: S,
         typelib: S,
+        oleclass: S,
     ) -> Result<OleTypeData> {
-        let oleclass = oleclass.as_ref();
-        let oleclass_vec = oleclass.to_wide_null();
-        let oleclass_pcwstr = PCWSTR::from_raw(oleclass_vec.as_ptr());
         let typelib = typelib.as_ref();
         let typelib_vec = typelib.to_wide_null();
         let typelib_pcwstr = PCWSTR::from_raw(typelib_vec.as_ptr());
+        let oleclass = oleclass.as_ref();
+        let oleclass_vec = oleclass.to_wide_null();
+        let oleclass_pcwstr = PCWSTR::from_raw(oleclass_vec.as_ptr());
         ole_initialized();
         let mut file = typelib_file(typelib_pcwstr)?;
         if file.is_null() {
@@ -197,13 +203,9 @@ impl OleTypeData {
             return true;
         };
         let typeflags = unsafe { (*type_attr).wTypeFlags };
-        let visible = if typeflags & (TYPEFLAG_FHIDDEN.0 | TYPEFLAG_FRESTRICTED.0) as u16 != 0 {
-            false
-        } else {
-            true
-        };
+        let visible = typeflags & (TYPEFLAG_FHIDDEN.0 | TYPEFLAG_FRESTRICTED.0) as u16 == 0;
         unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        return visible;
+        visible
     }
     pub fn variables(&self) -> Result<Vec<String>> {
         let type_attr_ptr = unsafe { self.typeinfo.GetTypeAttr()? };
@@ -238,6 +240,12 @@ impl OleTypeData {
         unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
         Some(alias)
     }
+    pub fn methods(&self) -> Result<Vec<OleMethodData>> {
+        ole_methods_from_typeinfo(
+            &self.typeinfo,
+            INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
+        )
+    }
 }
 
 fn oleclass_from_typelib(typelib: &ITypeLib, oleclass: PCWSTR) -> Option<OleTypeData> {
@@ -259,7 +267,10 @@ fn oleclass_from_typelib(typelib: &ITypeLib, oleclass: PCWSTR) -> Option<OleType
             continue;
         }
         if unsafe { oleclass.as_wide() } == bstrname.as_wide() {
-            typedata = Some(OleTypeData { dispatch: None, typeinfo });
+            typedata = Some(OleTypeData {
+                dispatch: None,
+                typeinfo,
+            });
             found = true;
         }
         i += 1;

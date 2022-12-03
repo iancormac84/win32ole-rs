@@ -7,4 +7,4 @@ mod oletypelibdata;
 mod util;
 //mod variant;
 
-pub use {oledata::OleData, olemethoddata::OleMethodData, oletypedata::OleTypeData};
+pub use {oledata::OleData, olemethoddata::OleMethodData, oletypedata::OleTypeData, util::ToWide};

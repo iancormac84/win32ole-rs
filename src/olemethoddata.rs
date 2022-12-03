@@ -1,6 +1,7 @@
 use crate::{
     error::Result,
-    util::{ole_typedesc2val, ToWide}, OleTypeData,
+    util::{ole_typedesc2val, ToWide},
+    OleTypeData,
 };
 use std::{ffi::OsStr, ptr};
 use windows::{
@@ -8,9 +9,11 @@ use windows::{
     Win32::System::Com::{ITypeInfo, VARENUM},
 };
 
+#[derive(Debug)]
 pub struct OleMethodData {
-    owner_typeinfo: ITypeInfo,
+    owner_typeinfo: Option<ITypeInfo>,
     typeinfo: ITypeInfo,
+    name: String,
     index: u32,
 }
 
@@ -23,7 +26,7 @@ impl OleMethodData {
         name: S,
     ) -> Result<Option<OleMethodData>> {
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
-        let mut method = ole_method_sub(0 as *const _, typeinfo, &name)?;
+        let mut method = ole_method_sub(None, typeinfo, &name)?;
         if method.is_some() {
             return Ok(method);
         }
@@ -40,7 +43,7 @@ impl OleMethodData {
             let Ok(ref_typeinfo) = result else {
                 continue;
             };
-            method = ole_method_sub(typeinfo, &ref_typeinfo, &name)?;
+            method = ole_method_sub(Some(typeinfo), &ref_typeinfo, &name)?;
         }
         unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
         Ok(method)
@@ -126,6 +129,9 @@ impl OleMethodData {
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(type_details)
     }
+    pub fn name(&self) -> &str {
+        &self.name[..]
+    }
 }
 
 pub(crate) fn ole_methods_from_typeinfo(
@@ -134,13 +140,13 @@ pub(crate) fn ole_methods_from_typeinfo(
 ) -> Result<Vec<OleMethodData>> {
     let type_attr = unsafe { typeinfo.GetTypeAttr()? };
     let mut methods = vec![];
-    ole_methods_sub(0 as *const _, typeinfo, &mut methods, mask)?;
+    ole_methods_sub(None, typeinfo, &mut methods, mask)?;
     for i in 0..unsafe { (*type_attr).cImplTypes } {
         let reftype = unsafe { typeinfo.GetRefTypeOfImplType(i as u32) };
         if let Ok(reftype) = reftype {
             let reftype_info = unsafe { typeinfo.GetRefTypeInfo(reftype) };
             if let Ok(reftype_info) = reftype_info {
-                ole_methods_sub(&*typeinfo, &reftype_info, &mut methods, mask)?;
+                ole_methods_sub(Some(typeinfo), &reftype_info, &mut methods, mask)?;
             } else {
                 continue;
             }
@@ -152,8 +158,8 @@ pub(crate) fn ole_methods_from_typeinfo(
     Ok(methods)
 }
 fn ole_method_sub<S: AsRef<OsStr>>(
-    owner_typeinfo: *const ITypeInfo,
-    typeinfo: *const ITypeInfo,
+    owner_typeinfo: Option<&ITypeInfo>,
+    typeinfo: &ITypeInfo,
     name: &S,
 ) -> Result<Option<OleMethodData>> {
     println!("Inside ole_method_sub");
@@ -166,6 +172,7 @@ fn ole_method_sub<S: AsRef<OsStr>>(
     let mut method = None;
     loop {
         if i == num_funcs {
+            println!("Gonna break now!");
             break;
         }
         let result = unsafe { (*typeinfo).GetFuncDesc(i as u32) };
@@ -187,10 +194,16 @@ fn ole_method_sub<S: AsRef<OsStr>>(
             unsafe { (*typeinfo).ReleaseFuncDesc(funcdesc) };
             continue;
         }
+        println!("bstrname is {bstrname}, and i is {i}");
         if unsafe { fname_pcwstr.as_wide() } == bstrname.as_wide() {
             method = Some(OleMethodData {
-                owner_typeinfo: unsafe { (*owner_typeinfo).clone() },
-                typeinfo: unsafe { (*typeinfo).clone() },
+                owner_typeinfo: if let Some(typ) = owner_typeinfo {
+                    Some(typ.clone())
+                } else {
+                    None
+                },
+                typeinfo: typeinfo.clone(),
+                name: bstrname.to_string(),
                 index: i as u32,
             });
         }
@@ -201,8 +214,8 @@ fn ole_method_sub<S: AsRef<OsStr>>(
     Ok(method)
 }
 fn ole_methods_sub(
-    owner_typeinfo: *const ITypeInfo,
-    typeinfo: *const ITypeInfo,
+    owner_typeinfo: Option<&ITypeInfo>,
+    typeinfo: &ITypeInfo,
     methods: &mut Vec<OleMethodData>,
     mask: i32,
 ) -> Result<()> {
@@ -228,8 +241,13 @@ fn ole_methods_sub(
                 }
                 if unsafe { (*func_desc_ptr).invkind.0 } & mask != 0 {
                     methods.push(OleMethodData {
-                        owner_typeinfo: unsafe { (*owner_typeinfo).clone() },
-                        typeinfo: unsafe { (*typeinfo).clone() },
+                        owner_typeinfo: if let Some(typ) = owner_typeinfo {
+                            Some(typ.clone())
+                        } else {
+                            None
+                        },
+                        typeinfo: typeinfo.clone(),
+                        name: bstrname.to_string(),
                         index: i as u32,
                     });
                 }

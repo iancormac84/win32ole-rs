@@ -226,14 +226,14 @@ pub(crate) fn ole_typedesc2val(
         26 => {
             let typestr: String = "PTR".into();
             if let Some(ref mut typedetails) = typedetails {
-                typedetails.push(typestr.clone());
+                typedetails.push(typestr);
             }
             return ole_ptrtype2val(typeinfo, typedesc, typedetails);
         }
         27 => {
             let typestr: String = "SAFEARRAY".into();
             if let Some(ref mut typedetails) = typedetails {
-                typedetails.push(typestr.clone());
+                typedetails.push(typestr);
             }
             return ole_ptrtype2val(typeinfo, typedesc, typedetails);
         }
