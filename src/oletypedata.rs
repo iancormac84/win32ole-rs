@@ -2,17 +2,13 @@ use crate::{
     error::{Error, Result},
     olemethoddata::ole_methods_from_typeinfo,
     oletypelibdata::typelib_file,
-    util::{
-        get_class_id, ole_initialized, ole_typedesc2val, reg_enum_key, reg_get_val2, reg_open_key,
-        ToWide,
-    },
+    util::{get_class_id, ole_initialized, ole_typedesc2val, ToWide},
     OleMethodData,
 };
 use std::{ffi::OsStr, ptr};
 use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::{
-        Foundation::ERROR_SUCCESS,
         Globalization::GetUserDefaultLCID,
         System::{
             Com::{
@@ -21,7 +17,6 @@ use windows::{
                 INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND,
             },
             Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
-            Registry::{RegCloseKey, HKEY, HKEY_CLASSES_ROOT},
         },
     },
 };
@@ -116,53 +111,6 @@ impl OleTypeData {
         let typekind = unsafe { (*type_attr).typekind };
         unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
         Ok(typekind)
-    }
-    pub fn progids(&self) -> Vec<PCWSTR> {
-        let mut hclsids = HKEY::default();
-        let mut hclsid = HKEY::default();
-        let mut progids = vec![];
-
-        let clsid = "CLSID".to_wide_null();
-        let clsid_pcwstr = PCWSTR::from_raw(clsid.as_ptr());
-        let progid = "ProgID".to_wide_null();
-        let progid_pcwstr = PCWSTR::from_raw(progid.as_ptr());
-        let version_independent_progid = "VersionIndependentProgID".to_wide_null();
-        let version_independent_progid_pcwstr =
-            PCWSTR::from_raw(version_independent_progid.as_ptr());
-
-        let mut result = reg_open_key(HKEY_CLASSES_ROOT, clsid_pcwstr, &mut hclsids);
-        if result != ERROR_SUCCESS {
-            return progids;
-        }
-
-        let mut i = 0;
-        loop {
-            let clsid = reg_enum_key(hclsids, i);
-
-            if clsid.is_null() {
-                println!("breaking cuz clsid is null");
-                break;
-            } /* else {
-                  println!("clsid is {}", unsafe { clsid.display() });
-              }*/
-            result = reg_open_key(hclsids, clsid, &mut hclsid);
-            if result != ERROR_SUCCESS {
-                i += 1;
-                continue;
-            }
-            let v = reg_get_val2(hclsid, progid_pcwstr);
-            if !v.is_null() {
-                progids.push(v);
-            }
-            let v = reg_get_val2(hclsid, version_independent_progid_pcwstr);
-            if !v.is_null() {
-                progids.push(v);
-            }
-            unsafe { RegCloseKey(hclsid) };
-            i += 1;
-        }
-        unsafe { RegCloseKey(hclsids) };
-        progids
     }
     #[allow(non_snake_case, unused_variables)]
     pub fn ole_type(&self) -> Result<&str> {

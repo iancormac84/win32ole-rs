@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, ptr};
 
 use windows::{
-    core::{BSTR, GUID, PWSTR},
+    core::{BSTR, GUID, PCWSTR},
     Win32::{
         Globalization::GetUserDefaultLCID,
         System::Com::{IDispatch, ITypeInfo, ITypeLib},
@@ -25,10 +25,10 @@ impl OleData {
     }
     pub fn get_ids_of_names<S: AsRef<OsStr> + Copy>(&self, names: &[S]) -> Result<Vec<i32>> {
         let namelen = names.len();
-        let mut wnames = vec![PWSTR::null(); namelen];
+        let mut wnames = vec![PCWSTR::null(); namelen];
         for i in 0..namelen {
             let mut a = to_u16s(names[i])?;
-            wnames[i] = PWSTR(a.as_mut_ptr());
+            wnames[i] = PCWSTR(a.as_ptr());
         }
 
         let mut dispids = 0;
@@ -51,7 +51,7 @@ impl OleData {
         let Ok(mut method) = to_u16s(method) else {
             return false;
         };
-        let methods = vec![PWSTR(method.as_mut_ptr())];
+        let methods = vec![PCWSTR(method.as_ptr())];
         let mut dispids = 0;
 
         unsafe {

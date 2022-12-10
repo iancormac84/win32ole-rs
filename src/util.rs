@@ -1,7 +1,7 @@
 use crate::error::Result;
 use std::{ffi::OsStr, io, os::windows::prelude::OsStrExt, ptr};
 use windows::{
-    core::{Interface, BSTR, GUID, PCWSTR, PWSTR},
+    core::{Interface, BSTR, GUID, PCSTR, PCWSTR, PWSTR},
     Win32::{
         Foundation::{ERROR_SUCCESS, FILETIME, WIN32_ERROR},
         System::{
@@ -9,11 +9,11 @@ use windows::{
                 CLSIDFromProgID, CLSIDFromString, CoCreateInstance, ITypeInfo, ITypeLib,
                 CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, TYPEDESC, VT_PTR, VT_SAFEARRAY,
             },
-            Environment::ExpandEnvironmentStringsW,
+            Environment::ExpandEnvironmentStringsA,
             Ole::{OleInitialize, OleUninitialize},
             Registry::{
-                RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, KEY_READ,
-                REG_EXPAND_SZ, REG_QWORD, REG_VALUE_TYPE,
+                RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, HKEY, KEY_READ,
+                REG_EXPAND_SZ, REG_VALUE_TYPE, RegQueryValueExA,
             },
         },
     },
@@ -111,7 +111,7 @@ pub(crate) fn reg_enum_key(hkey: HKEY, i: u32) -> PCWSTR {
     let buf_pwstr = PWSTR(buf.as_mut_ptr());
     let mut buf_size = buf.len() as u32;
     let mut ft = FILETIME::default();
-    let _result = unsafe {
+    let result = unsafe {
         RegEnumKeyExW(
             hkey,
             i,
@@ -123,64 +123,68 @@ pub(crate) fn reg_enum_key(hkey: HKEY, i: u32) -> PCWSTR {
             Some(&mut ft),
         )
     };
-    PCWSTR(buf_pwstr.0) //May contain a NULL buffer
+    if result == ERROR_SUCCESS {
+        PCWSTR::from_raw(buf.as_ptr())
+    } else {
+        PCWSTR::null()
+    }
 }
 
 pub fn reg_get_val(hkey: HKEY, subkey: Option<PCWSTR>) -> PCWSTR {
-    let subkey_pcwstr = if let Some(subkey) = subkey {
-        subkey
+    let subkey_pcstr = if let Some(subkey) = subkey {
+        let subkey_str = unsafe { subkey.to_string().unwrap() };
+        let mut subkey_vec = subkey_str.into_bytes();
+        subkey_vec.push(0);
+        PCSTR::from_raw(subkey_vec.as_ptr())
     } else {
-        PCWSTR::null()
+        PCSTR::null()
     };
+
     let mut dwtype = REG_VALUE_TYPE::default();
-    let mut buf_len = 2048;
-    let mut buf = Vec::with_capacity(buf_len as usize);
-    loop {
-        match unsafe {
-            RegQueryValueExW(
+    let mut buf_len = 0;
+    let result = unsafe {
+        RegQueryValueExA(
+            hkey,
+            subkey_pcstr,
+            None,
+            Some(&mut dwtype),
+            None,
+            Some(&mut buf_len),
+        )
+    };
+
+    if result == ERROR_SUCCESS {
+        let mut buf = vec![0; buf_len as usize + 1];
+
+        let result = unsafe {
+            RegQueryValueExA(
                 hkey,
-                subkey_pcwstr,
+                subkey_pcstr,
                 None,
                 Some(&mut dwtype),
                 Some(buf.as_mut_ptr()),
                 Some(&mut buf_len),
             )
-            .0
-        } {
-            0 => {
-                // ERROR_SUCCESS
-                unsafe {
-                    buf.set_len(buf_len as usize);
-                }
-                // there shouldn't be anything higher than REG_QWORD, so just return a null string
-                if dwtype.0 > REG_QWORD.0 {
-                    return PCWSTR::null();
-                } else {
-                    let mut buf_str = String::from_utf8_lossy(&buf).to_string();
-                    while buf_str.ends_with('\u{0}') {
-                        buf_str.pop();
-                    }
-                    let buf_vec = buf_str.to_wide_null();
-                    let buf_pcwstr = PCWSTR::from_raw(buf_vec.as_ptr());
-                    if dwtype == REG_EXPAND_SZ {
-                        let len = unsafe { ExpandEnvironmentStringsW(buf_pcwstr, None) };
-                        let mut expanded_buf = vec![0; len as usize];
-                        let _len = unsafe {
-                            ExpandEnvironmentStringsW(buf_pcwstr, Some(&mut expanded_buf))
-                        };
-                        return PCWSTR::from_raw(expanded_buf.as_ptr());
-                    } else {
-                        return PCWSTR::from_raw(buf_pcwstr.as_ptr());
-                    }
-                };
+        };
+
+        if result == ERROR_SUCCESS {
+            let buf_pcstr = PCSTR::from_raw(buf.as_ptr());
+            if dwtype == REG_EXPAND_SZ {
+                let len = unsafe { ExpandEnvironmentStringsA(buf_pcstr, None) };
+                let mut expanded_buf = vec![0; len as usize + 1];
+                let _len = unsafe { ExpandEnvironmentStringsA(buf_pcstr, Some(&mut expanded_buf)) };
+                let expanded_buf_str = unsafe { buf_pcstr.to_string().unwrap() };
+                let expanded_buf_u16vec = expanded_buf_str.to_wide_null();
+                return PCWSTR::from_raw(expanded_buf_u16vec.as_ptr());
             }
-            234 => {
-                // ERROR_MORE_DATA
-                buf.reserve(buf_len as usize);
-            }
-            _err => return PCWSTR::null(),
+            let buf_str = unsafe { buf_pcstr.to_string().unwrap() };
+            let buf_vecu16 = buf_str.to_wide_null();
+            let buf_pcwstr = PCWSTR::from_raw(buf_vecu16.as_ptr());
+            return buf_pcwstr;
         }
+        println!("In here, result is {:?}", result);
     }
+    PCWSTR::null()
 }
 
 pub(crate) fn reg_get_val2(hkey: HKEY, subkey: PCWSTR) -> PCWSTR {
@@ -188,13 +192,27 @@ pub(crate) fn reg_get_val2(hkey: HKEY, subkey: PCWSTR) -> PCWSTR {
     let mut val = PCWSTR::null();
     let result = unsafe { RegOpenKeyExW(hkey, subkey, 0, KEY_READ, &mut hsubkey) };
     if result == ERROR_SUCCESS {
-        val = reg_get_val(hkey, None);
+        val = reg_get_val(hsubkey, None);
         unsafe { RegCloseKey(hsubkey) };
     }
     if val.is_null() {
         val = reg_get_val(hkey, Some(subkey));
     }
     val
+}
+
+pub(crate) fn reg_get_val2_string(hkey: HKEY, subkey: PCWSTR) -> Option<String> {
+    let result = reg_get_val2(hkey, subkey);
+    match result.is_null() {
+        false => {
+            if let Ok(str) = unsafe { result.to_string() } {
+                Some(str)
+            } else {
+                None
+            }
+        }
+        true => None,
+    }
 }
 
 pub(crate) fn ole_typedesc2val(
@@ -322,3 +340,22 @@ fn ole_docinfo_from_type(
     unsafe { typelib.GetDocumentation(index as i32, name, helpstr, helpcontext, helpfile)? };
     Ok(())
 }
+
+/*pub(crate) fn check_nano_server() {
+    let mut hsubkey = HKEY::default();
+    let subkey =
+        "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels".to_wide_null();
+    let subkey_pcwstr = PCWSTR::from_raw(subkey.as_ptr());
+    let regval = "NanoServer".to_wide_null();
+    let regval_pcwstr = PCWSTR::from_raw(regval.as_ptr());
+
+    let result =
+        unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey_pcwstr, 0, KEY_READ, &mut hsubkey) };
+    if result == ERROR_SUCCESS {
+        let result = unsafe { RegQueryValueExW(hsubkey, regval_pcwstr, None, None, None, None) };
+        if result == ERROR_SUCCESS {
+            g_running_nano = TRUE;
+        }
+        unsafe { RegCloseKey(hsubkey) };
+    }
+}*/

@@ -6,7 +6,10 @@ use crate::{
 use std::{ffi::OsStr, ptr};
 use windows::{
     core::{BSTR, PCWSTR},
-    Win32::System::Com::{ITypeInfo, VARENUM},
+    Win32::System::Com::{
+        ITypeInfo, IMPLTYPEFLAG_FSOURCE, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET,
+        INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, VARENUM,
+    },
 };
 
 #[derive(Debug)]
@@ -102,8 +105,8 @@ impl OleMethodData {
         unsafe { self.typeinfo.ReleaseFuncDesc(res) };
         Ok(dispid)
     }
-    pub fn return_type(&self, method_index: u32) -> Result<String> {
-        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(method_index)? };
+    pub fn return_type(&self) -> Result<String> {
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index)? };
         let type_ = ole_typedesc2val(
             &self.typeinfo,
             &(unsafe { (*funcdesc).elemdescFunc.tdesc }),
@@ -112,8 +115,8 @@ impl OleMethodData {
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(type_)
     }
-    pub fn return_vtype(&self, method_index: u32) -> Result<VARENUM> {
-        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(method_index)? };
+    pub fn return_vtype(&self) -> Result<VARENUM> {
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index)? };
         let vvt = unsafe { (*funcdesc).elemdescFunc.tdesc.vt };
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(vvt)
@@ -128,6 +131,111 @@ impl OleMethodData {
         );
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(type_details)
+    }
+    pub fn invkind(&self) -> Result<INVOKEKIND> {
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index)? };
+        let invkind = unsafe { (*funcdesc).invkind };
+        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
+        Ok(invkind)
+    }
+    pub fn invoke_kind(&self) -> Result<String> {
+        let invkind = self.invkind()?;
+        if invkind.0 & INVOKE_PROPERTYGET.0 != 0 && invkind.0 & INVOKE_PROPERTYPUT.0 != 0 {
+            Ok("PROPERTY".into())
+        } else if invkind.0 & INVOKE_PROPERTYGET.0 != 0 {
+            Ok("PROPERTYGET".into())
+        } else if invkind.0 & INVOKE_PROPERTYPUT.0 != 0 {
+            Ok("PROPERTYPUT".into())
+        } else if invkind.0 & INVOKE_PROPERTYPUTREF.0 != 0 {
+            Ok("PROPERTYPUTREF".into())
+        } else if invkind.0 & INVOKE_FUNC.0 != 0 {
+            Ok("FUNC".into())
+        } else {
+            Ok("UNKNOWN".into())
+        }
+    }
+    pub fn is_event(&self) -> bool {
+        if self.owner_typeinfo.is_none() {
+            return false;
+        }
+        let result = unsafe { self.owner_typeinfo.as_ref().unwrap().GetTypeAttr() };
+        if result.is_err() {
+            return false;
+        }
+        let type_attr = result.unwrap();
+        if unsafe { (*type_attr).typekind } != TKIND_COCLASS {
+            unsafe {
+                self.owner_typeinfo
+                    .as_ref()
+                    .unwrap()
+                    .ReleaseTypeAttr(type_attr)
+            };
+            return false;
+        }
+        let mut event = false;
+        for i in 0..unsafe { (*type_attr).cImplTypes } {
+            let result = unsafe {
+                self.owner_typeinfo
+                    .as_ref()
+                    .unwrap()
+                    .GetImplTypeFlags(i as u32)
+            };
+            if result.is_err() {
+                continue;
+            }
+
+            let flags = result.unwrap();
+
+            if flags & IMPLTYPEFLAG_FSOURCE.0 != 0 {
+                let result = unsafe {
+                    self.owner_typeinfo
+                        .as_ref()
+                        .unwrap()
+                        .GetRefTypeOfImplType(i as u32)
+                };
+                if result.is_err() {
+                    continue;
+                }
+                let href = result.unwrap();
+                let result = unsafe { self.owner_typeinfo.as_ref().unwrap().GetRefTypeInfo(href) };
+                if result.is_err() {
+                    continue;
+                }
+                let ref_type_info = result.unwrap();
+                let result = unsafe { ref_type_info.GetFuncDesc(self.index) };
+                if result.is_err() {
+                    continue;
+                }
+                let funcdesc = result.unwrap();
+                let mut bstrname = BSTR::default();
+                let result = unsafe {
+                    ref_type_info.GetDocumentation(
+                        (*funcdesc).memid,
+                        Some(&mut bstrname),
+                        None,
+                        ptr::null_mut(),
+                        None,
+                    )
+                };
+                if result.is_err() {
+                    unsafe { ref_type_info.ReleaseFuncDesc(funcdesc) };
+                    continue;
+                }
+
+                unsafe { ref_type_info.ReleaseFuncDesc(funcdesc) };
+                if self.name == bstrname.to_string() {
+                    event = true;
+                    break;
+                }
+            }
+        }
+        unsafe {
+            self.owner_typeinfo
+                .as_ref()
+                .unwrap()
+                .ReleaseTypeAttr(type_attr)
+        };
+        return event;
     }
     pub fn name(&self) -> &str {
         &self.name[..]
