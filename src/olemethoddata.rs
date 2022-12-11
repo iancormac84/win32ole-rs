@@ -223,7 +223,7 @@ impl OleMethodData {
                 }
 
                 unsafe { ref_type_info.ReleaseFuncDesc(funcdesc) };
-                if self.name == bstrname.to_string() {
+                if self.name == bstrname {
                     event = true;
                     break;
                 }
@@ -235,7 +235,7 @@ impl OleMethodData {
                 .unwrap()
                 .ReleaseTypeAttr(type_attr)
         };
-        return event;
+        event
     }
     pub fn name(&self) -> &str {
         &self.name[..]
@@ -270,7 +270,6 @@ fn ole_method_sub<S: AsRef<OsStr>>(
     typeinfo: &ITypeInfo,
     name: &S,
 ) -> Result<Option<OleMethodData>> {
-    println!("Inside ole_method_sub");
     let type_attr = unsafe { (*typeinfo).GetTypeAttr()? };
     let fname = name.to_wide_null();
     let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
@@ -280,7 +279,6 @@ fn ole_method_sub<S: AsRef<OsStr>>(
     let mut method = None;
     loop {
         if i == num_funcs {
-            println!("Gonna break now!");
             break;
         }
         let result = unsafe { (*typeinfo).GetFuncDesc(i as u32) };
@@ -302,14 +300,9 @@ fn ole_method_sub<S: AsRef<OsStr>>(
             unsafe { (*typeinfo).ReleaseFuncDesc(funcdesc) };
             continue;
         }
-        println!("bstrname is {bstrname}, and i is {i}");
         if unsafe { fname_pcwstr.as_wide() } == bstrname.as_wide() {
             method = Some(OleMethodData {
-                owner_typeinfo: if let Some(typ) = owner_typeinfo {
-                    Some(typ.clone())
-                } else {
-                    None
-                },
+                owner_typeinfo: owner_typeinfo.cloned(),
                 typeinfo: typeinfo.clone(),
                 name: bstrname.to_string(),
                 index: i as u32,
@@ -349,11 +342,7 @@ fn ole_methods_sub(
                 }
                 if unsafe { (*func_desc_ptr).invkind.0 } & mask != 0 {
                     methods.push(OleMethodData {
-                        owner_typeinfo: if let Some(typ) = owner_typeinfo {
-                            Some(typ.clone())
-                        } else {
-                            None
-                        },
+                        owner_typeinfo: owner_typeinfo.cloned(),
                         typeinfo: typeinfo.clone(),
                         name: bstrname.to_string(),
                         index: i as u32,

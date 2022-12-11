@@ -53,7 +53,7 @@ impl FromRegValue for String {
                     s.pop();
                 }
                 if val.vtype == REG_MULTI_SZ {
-                    return Ok(s.replace("\u{0}", "\n"));
+                    return Ok(s.replace('\u{0}', "\n"));
                 }
                 Ok(s)
             }
@@ -112,7 +112,7 @@ impl FromRegValue for Vec<OsString> {
                 }
                 let v: Vec<OsString> = words
                     .split(|ch| *ch == 0u16)
-                    .map(|x| OsString::from_wide(x))
+                    .map(OsString::from_wide)
                     .collect();
                 Ok(v)
             }
@@ -165,7 +165,7 @@ impl fmt::Display for RegValue {
             11 => format_reg_value!(self => u64),
             _ => format!("{:?}", self.bytes), //TODO: implement more types
         };
-        write!(f, "{}", f_val)
+        write!(f, "{f_val}")
     }
 }
 
@@ -243,7 +243,7 @@ impl RegKey {
     pub fn get_value<N: AsRef<OsStr>>(&self, name: N) -> Result<String> {
         match self.get_raw_value(name) {
             Ok(ref val) => String::from_reg_value(val),
-            Err(err) => Err(err.into()),
+            Err(err) => Err(err),
         }
     }
 

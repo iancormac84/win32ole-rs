@@ -123,7 +123,7 @@ impl OleTypeData {
             6 => "Alias",
             7 => "Union",
             8 => "Max",
-            _ => panic!("TYPEKIND({}) has no WINAPI raw representation", kind),
+            _ => panic!("TYPEKIND({kind}) has no WINAPI raw representation"),
         };
         unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
         Ok(type_)
@@ -211,7 +211,7 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Op
             continue;
         }
         let oleclass = oleclass.as_ref();
-        if oleclass.to_str().unwrap() == bstrname.to_string() {
+        if oleclass.to_str().unwrap() == bstrname {
             typedata = Some(OleTypeData {
                 dispatch: None,
                 typeinfo,
