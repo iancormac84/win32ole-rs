@@ -1,4 +1,4 @@
-use std::{fmt, io, string};
+use std::{fmt, io, num::ParseFloatError, string};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -7,6 +7,7 @@ pub enum Error {
     Io(io::Error),
     Windows(windows::core::Error),
     Utf16(string::FromUtf16Error),
+    ParseFloat(ParseFloatError),
     Generic(&'static str),
     Custom(String),
 }
@@ -35,6 +36,12 @@ impl From<std::string::FromUtf16Error> for Error {
     }
 }
 
+impl From<std::num::ParseFloatError> for Error {
+    fn from(err: std::num::ParseFloatError) -> Error {
+        Error::ParseFloat(err)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         use Error::*;
@@ -42,6 +49,7 @@ impl fmt::Display for Error {
             Io(ref err) => err.fmt(fmt),
             Windows(ref err) => err.fmt(fmt),
             Utf16(ref err) => err.fmt(fmt),
+            ParseFloat(ref err) => err.fmt(fmt),
             Generic(ref err) => err.fmt(fmt),
             Custom(ref err) => err.fmt(fmt),
         }

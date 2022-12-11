@@ -2,7 +2,10 @@ use crate::{
     error::{Error, Result},
     olemethoddata::ole_methods_from_typeinfo,
     oletypelibdata::typelib_file,
-    util::{get_class_id, ole_initialized, ole_typedesc2val, ToWide},
+    util::{
+        conv::ToWide,
+        ole::{get_class_id, ole_initialized, ole_typedesc2val},
+    },
     OleMethodData,
 };
 use std::{ffi::OsStr, ptr};
@@ -42,26 +45,19 @@ impl OleTypeData {
         typelib: S,
         oleclass: S,
     ) -> Result<OleTypeData> {
-        let typelib = typelib.as_ref();
-        let typelib_vec = typelib.to_wide_null();
-        let typelib_pcwstr = PCWSTR::from_raw(typelib_vec.as_ptr());
-        let oleclass = oleclass.as_ref();
-        let oleclass_vec = oleclass.to_wide_null();
-        let oleclass_pcwstr = PCWSTR::from_raw(oleclass_vec.as_ptr());
         ole_initialized();
-        let mut file = typelib_file(typelib_pcwstr)?;
-        if file.is_null() {
-            file = typelib_pcwstr;
-        }
-        let typelib_iface = unsafe { LoadTypeLibEx(file, REGKIND_NONE)? };
-        let maybe_typedata = oleclass_from_typelib(&typelib_iface, oleclass_pcwstr);
+        let file = typelib_file(&typelib)?;
+        let file_vec = file.to_wide_null();
+        let typelib_iface =
+            unsafe { LoadTypeLibEx(PCWSTR::from_raw(file_vec.as_ptr()), REGKIND_NONE)? };
+        let maybe_typedata = oleclass_from_typelib(&typelib_iface, &oleclass);
         if let Some(typedata) = maybe_typedata {
             Ok(typedata)
         } else {
             return Err(Error::Custom(format!(
                 "`{}` not found in `{}`",
-                unsafe { oleclass_pcwstr.display() },
-                unsafe { typelib_pcwstr.display() }
+                oleclass.as_ref().to_str().unwrap(),
+                typelib.as_ref().to_str().unwrap()
             )));
         }
     }
@@ -196,7 +192,7 @@ impl OleTypeData {
     }
 }
 
-fn oleclass_from_typelib(typelib: &ITypeLib, oleclass: PCWSTR) -> Option<OleTypeData> {
+fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Option<OleTypeData> {
     let mut found = false;
     let mut typedata: Option<OleTypeData> = None;
 
@@ -214,7 +210,8 @@ fn oleclass_from_typelib(typelib: &ITypeLib, oleclass: PCWSTR) -> Option<OleType
         if result.is_err() {
             continue;
         }
-        if unsafe { oleclass.as_wide() } == bstrname.as_wide() {
+        let oleclass = oleclass.as_ref();
+        if oleclass.to_str().unwrap() == bstrname.to_string() {
             typedata = Some(OleTypeData {
                 dispatch: None,
                 typeinfo,

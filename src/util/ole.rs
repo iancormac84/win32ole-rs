@@ -1,21 +1,13 @@
-use crate::error::Result;
-use std::{ffi::OsStr, io, os::windows::prelude::OsStrExt, ptr};
+use crate::{error::Result, ToWide};
+use std::{ffi::OsStr, ptr};
 use windows::{
-    core::{Interface, BSTR, GUID, PCSTR, PCWSTR, PWSTR},
-    Win32::{
-        Foundation::{ERROR_SUCCESS, FILETIME, WIN32_ERROR},
-        System::{
-            Com::{
-                CLSIDFromProgID, CLSIDFromString, CoCreateInstance, ITypeInfo, ITypeLib,
-                CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, TYPEDESC, VT_PTR, VT_SAFEARRAY,
-            },
-            Environment::ExpandEnvironmentStringsA,
-            Ole::{OleInitialize, OleUninitialize},
-            Registry::{
-                RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, HKEY, KEY_READ,
-                REG_EXPAND_SZ, REG_VALUE_TYPE, RegQueryValueExA,
-            },
+    core::{Interface, BSTR, GUID, PCWSTR},
+    Win32::System::{
+        Com::{
+            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, ITypeInfo, ITypeLib,
+            CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, TYPEDESC, VT_PTR, VT_SAFEARRAY,
         },
+        Ole::{OleInitialize, OleUninitialize},
     },
 };
 
@@ -45,38 +37,8 @@ pub fn ole_initialized() {
     OLE_INITIALIZED.with(|_| {});
 }
 
-pub trait ToWide {
-    fn to_wide(&self) -> Vec<u16>;
-    fn to_wide_null(&self) -> Vec<u16>;
-}
-
-impl<T> ToWide for T
-where
-    T: AsRef<OsStr>,
-{
-    fn to_wide(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().collect()
-    }
-    fn to_wide_null(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().chain(Some(0)).collect()
-    }
-}
-
-pub fn to_u16s<S: AsRef<OsStr>>(s: S) -> Result<Vec<u16>> {
-    let mut maybe_result: Vec<u16> = s.to_wide();
-    if maybe_result.iter().any(|&u| u == 0) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "strings passed to WinAPI cannot contain NULs",
-        )
-        .into());
-    }
-    maybe_result.push(0);
-    Ok(maybe_result)
-}
-
 pub fn get_class_id<S: AsRef<OsStr>>(s: S) -> Result<GUID> {
-    let prog_id = to_u16s(s)?;
+    let prog_id = s.to_wide_null();
     let prog_id = PCWSTR::from_raw(prog_id.as_ptr());
 
     unsafe {
@@ -100,119 +62,6 @@ pub fn create_com_object<S: AsRef<OsStr>, T: Interface>(s: S) -> Result<T> {
     let class_id = get_class_id(s)?;
 
     create_instance(&class_id)
-}
-
-pub(crate) fn reg_open_key(hkey: HKEY, name: PCWSTR, phkey: &mut HKEY) -> WIN32_ERROR {
-    unsafe { RegOpenKeyExW(hkey, name, 0, KEY_READ, phkey) }
-}
-
-pub(crate) fn reg_enum_key(hkey: HKEY, i: u32) -> PCWSTR {
-    let mut buf = vec![0; 512 + 1];
-    let buf_pwstr = PWSTR(buf.as_mut_ptr());
-    let mut buf_size = buf.len() as u32;
-    let mut ft = FILETIME::default();
-    let result = unsafe {
-        RegEnumKeyExW(
-            hkey,
-            i,
-            buf_pwstr,
-            &mut buf_size,
-            None,
-            PWSTR::null(),
-            None,
-            Some(&mut ft),
-        )
-    };
-    if result == ERROR_SUCCESS {
-        PCWSTR::from_raw(buf.as_ptr())
-    } else {
-        PCWSTR::null()
-    }
-}
-
-pub fn reg_get_val(hkey: HKEY, subkey: Option<PCWSTR>) -> PCWSTR {
-    let subkey_pcstr = if let Some(subkey) = subkey {
-        let subkey_str = unsafe { subkey.to_string().unwrap() };
-        let mut subkey_vec = subkey_str.into_bytes();
-        subkey_vec.push(0);
-        PCSTR::from_raw(subkey_vec.as_ptr())
-    } else {
-        PCSTR::null()
-    };
-
-    let mut dwtype = REG_VALUE_TYPE::default();
-    let mut buf_len = 0;
-    let result = unsafe {
-        RegQueryValueExA(
-            hkey,
-            subkey_pcstr,
-            None,
-            Some(&mut dwtype),
-            None,
-            Some(&mut buf_len),
-        )
-    };
-
-    if result == ERROR_SUCCESS {
-        let mut buf = vec![0; buf_len as usize + 1];
-
-        let result = unsafe {
-            RegQueryValueExA(
-                hkey,
-                subkey_pcstr,
-                None,
-                Some(&mut dwtype),
-                Some(buf.as_mut_ptr()),
-                Some(&mut buf_len),
-            )
-        };
-
-        if result == ERROR_SUCCESS {
-            let buf_pcstr = PCSTR::from_raw(buf.as_ptr());
-            if dwtype == REG_EXPAND_SZ {
-                let len = unsafe { ExpandEnvironmentStringsA(buf_pcstr, None) };
-                let mut expanded_buf = vec![0; len as usize + 1];
-                let _len = unsafe { ExpandEnvironmentStringsA(buf_pcstr, Some(&mut expanded_buf)) };
-                let expanded_buf_str = unsafe { buf_pcstr.to_string().unwrap() };
-                let expanded_buf_u16vec = expanded_buf_str.to_wide_null();
-                return PCWSTR::from_raw(expanded_buf_u16vec.as_ptr());
-            }
-            let buf_str = unsafe { buf_pcstr.to_string().unwrap() };
-            let buf_vecu16 = buf_str.to_wide_null();
-            let buf_pcwstr = PCWSTR::from_raw(buf_vecu16.as_ptr());
-            return buf_pcwstr;
-        }
-        println!("In here, result is {:?}", result);
-    }
-    PCWSTR::null()
-}
-
-pub(crate) fn reg_get_val2(hkey: HKEY, subkey: PCWSTR) -> PCWSTR {
-    let mut hsubkey = HKEY::default();
-    let mut val = PCWSTR::null();
-    let result = unsafe { RegOpenKeyExW(hkey, subkey, 0, KEY_READ, &mut hsubkey) };
-    if result == ERROR_SUCCESS {
-        val = reg_get_val(hsubkey, None);
-        unsafe { RegCloseKey(hsubkey) };
-    }
-    if val.is_null() {
-        val = reg_get_val(hkey, Some(subkey));
-    }
-    val
-}
-
-pub(crate) fn reg_get_val2_string(hkey: HKEY, subkey: PCWSTR) -> Option<String> {
-    let result = reg_get_val2(hkey, subkey);
-    match result.is_null() {
-        false => {
-            if let Ok(str) = unsafe { result.to_string() } {
-                Some(str)
-            } else {
-                None
-            }
-        }
-        true => None,
-    }
 }
 
 pub(crate) fn ole_typedesc2val(

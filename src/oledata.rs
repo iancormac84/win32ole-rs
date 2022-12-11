@@ -11,7 +11,7 @@ use windows::{
 use crate::{
     error::Result,
     olemethoddata::{ole_methods_from_typeinfo, OleMethodData},
-    util::{create_com_object, to_u16s},
+    util::{conv::ToWide, ole::create_com_object},
 };
 
 pub struct OleData {
@@ -27,7 +27,7 @@ impl OleData {
         let namelen = names.len();
         let mut wnames = vec![PCWSTR::null(); namelen];
         for i in 0..namelen {
-            let mut a = to_u16s(names[i])?;
+            let a = names[i].to_wide_null();
             wnames[i] = PCWSTR(a.as_ptr());
         }
 
@@ -48,9 +48,7 @@ impl OleData {
         Ok(ids)
     }
     pub fn responds_to<S: AsRef<OsStr>>(&self, method: S) -> bool {
-        let Ok(mut method) = to_u16s(method) else {
-            return false;
-        };
+        let method = method.to_wide_null();
         let methods = vec![PCWSTR(method.as_ptr())];
         let mut dispids = 0;
 

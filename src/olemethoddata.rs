@@ -1,6 +1,6 @@
 use crate::{
     error::Result,
-    util::{ole_typedesc2val, ToWide},
+    util::{conv::ToWide, ole::ole_typedesc2val},
     OleTypeData,
 };
 use std::{ffi::OsStr, ptr};
