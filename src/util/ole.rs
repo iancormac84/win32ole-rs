@@ -1,11 +1,12 @@
-use crate::{error::Result, ToWide};
+use crate::{error::Result, ToWide, G_RUNNING_NANO};
 use std::{ffi::OsStr, ptr};
 use windows::{
     core::{Interface, BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
-            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, ITypeInfo, ITypeLib,
-            CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, TYPEDESC, VT_PTR, VT_SAFEARRAY,
+            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoInitializeEx, CoUninitialize,
+            ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED,
+            TYPEDESC, VT_PTR, VT_SAFEARRAY,
         },
         Ole::{OleInitialize, OleUninitialize},
     },
@@ -13,7 +14,14 @@ use windows::{
 
 thread_local!(static OLE_INITIALIZED: OleInitialized = {
     unsafe {
-        OleInitialize(ptr::null_mut()).unwrap();
+        let result = if *G_RUNNING_NANO {
+            CoInitializeEx(None, COINIT_MULTITHREADED)
+        } else {
+            OleInitialize(ptr::null_mut())
+        };
+        if let Err(error) = result {
+            panic!("Failed: OLE initialization. {error}");
+        }
         OleInitialized(ptr::null_mut())
     }
 });
@@ -27,7 +35,11 @@ struct OleInitialized(*mut ());
 impl Drop for OleInitialized {
     #[inline]
     fn drop(&mut self) {
-        unsafe { OleUninitialize() };
+        if *G_RUNNING_NANO {
+            unsafe { CoUninitialize() };
+        } else {
+            unsafe { OleUninitialize() };
+        }
     }
 }
 
@@ -189,22 +201,3 @@ fn ole_docinfo_from_type(
     unsafe { typelib.GetDocumentation(index as i32, name, helpstr, helpcontext, helpfile)? };
     Ok(())
 }
-
-/*pub(crate) fn check_nano_server() {
-    let mut hsubkey = HKEY::default();
-    let subkey =
-        "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels".to_wide_null();
-    let subkey_pcwstr = PCWSTR::from_raw(subkey.as_ptr());
-    let regval = "NanoServer".to_wide_null();
-    let regval_pcwstr = PCWSTR::from_raw(regval.as_ptr());
-
-    let result =
-        unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey_pcwstr, 0, KEY_READ, &mut hsubkey) };
-    if result == ERROR_SUCCESS {
-        let result = unsafe { RegQueryValueExW(hsubkey, regval_pcwstr, None, None, None, None) };
-        if result == ERROR_SUCCESS {
-            g_running_nano = TRUE;
-        }
-        unsafe { RegCloseKey(hsubkey) };
-    }
-}*/

@@ -1,10 +1,6 @@
-use win32ole::OleTypeData;
+use win32ole::OleTypeLibData;
 
 fn main() {
-    let excel = OleTypeData::from_typelib_and_oleclass(
-        "Microsoft Excel 16.0 Object Library",
-        "Application",
-    )
-    .unwrap();
-    println!("excel.guid() is {:?}", excel.guid());
+    let shell = OleTypeLibData::new1("C:\\Windows\\SYSTEM32\\USER32.DLL").unwrap();
+    println!("{}", shell.name());
 }

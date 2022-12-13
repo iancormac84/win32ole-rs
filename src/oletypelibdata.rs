@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, path::PathBuf, ptr};
 
 use crate::{
-    error::Result,
+    error::{Error, Result},
     util::{conv::ToWide, RegKey},
 };
 use windows::{
@@ -23,19 +23,45 @@ pub struct OleTypeLibData {
 }
 
 impl OleTypeLibData {
+    pub fn new1<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLibData> {
+        let mut typelibdata = oletypelib_search_registry(&typelib_str);
+        if typelibdata.is_err() {
+            typelibdata = oletypelib_search_registry2([typelib_str.as_ref(), "", ""]);
+        } else {
+            return typelibdata;
+        }
+        if typelibdata.is_err() {
+            let typelib_str = typelib_str.as_ref();
+            let typelib_vec = typelib_str.to_wide_null();
+            let typelib_pcwstr = PCWSTR::from_raw(typelib_vec.as_ptr());
+            let typelib = unsafe { LoadTypeLibEx(typelib_pcwstr, REGKIND_NONE) };
+            if let Ok(typelib) = typelib {
+                let name = name_from_typelib(&typelib);
+                Ok(OleTypeLibData {
+                    typelib,
+                    name: name.unwrap_or(String::new()),
+                })
+            } else {
+                Err(Error::Custom(format!(
+                    "type library `{typelib_str}` not found",
+                    
+                )))
+            }
+        } else {
+            typelibdata
+        }
+    }
     pub fn guid(&self) -> Result<GUID> {
         let lib_attr = unsafe { self.typelib.GetLibAttr() }?;
         let guid = unsafe { (*lib_attr).guid };
         unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
         Ok(guid)
     }
-    pub fn name(&self) -> Result<String> {
-        let mut bstrname = BSTR::default();
-        unsafe {
-            self.typelib
-                .GetDocumentation(-1, Some(&mut bstrname), None, ptr::null_mut(), None)
-        }?;
-        Ok(bstrname.to_string())
+    pub fn name(&self) -> &str {
+        &self.name[..]
+    }
+    pub fn library_name(&self) -> Result<String> {
+        library_name_from_typelib(&self.typelib)
     }
     pub fn version(&self) -> Result<f64> {
         let lib_attr = unsafe { self.typelib.GetLibAttr() }?;
@@ -200,4 +226,148 @@ pub fn oletypelib_from_guid(guid: &str, version: &str) -> Result<ITypeLib> {
         Ok(typelib) => Ok(typelib),
         Err(error) => Err(error.into()),
     }
+}
+
+fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLibData> {
+    let mut found = false;
+    let mut maybe_oletypelibdata = None;
+    let htypelib = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("TypeLib")?;
+
+    for guid_or_error in htypelib.enum_keys() {
+        if found {
+            break;
+        }
+        let Ok(guid) = guid_or_error else {
+            continue;
+        };
+        let hguid = htypelib.open_subkey(&guid);
+        let Ok(hguid) = hguid else {
+            continue;
+        };
+        for version_or_error in hguid.enum_keys() {
+            if found {
+                break;
+            }
+            let Ok(version) = version_or_error else {
+                continue;
+            };
+            let hversion = hguid.open_subkey(&version);
+            let Ok(hversion) = hversion else {
+                continue;
+            };
+            let tlib = hversion.get_value("");
+            let Ok(tlib) = tlib else {
+                continue;
+            };
+            if typelib_str.as_ref() == tlib {
+                let typelib = oletypelib_from_guid(&guid, &version);
+                if let Ok(typelib) = typelib {
+                    let name = name_from_typelib(&typelib);
+                    maybe_oletypelibdata = Some(OleTypeLibData {
+                        typelib,
+                        name: name.unwrap_or(String::new()),
+                    });
+                    found = true;
+                }
+            }
+        }
+    }
+    if let Some(typelibdata) = maybe_oletypelibdata {
+        Ok(typelibdata)
+    } else {
+        Err(Error::Custom(format!(
+            "type library `{}` was not found",
+            typelib_str.as_ref()
+        )))        
+    }
+}
+
+fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
+    let mut maybe_oletypelibdata = None;
+    let guid = args[0];
+    let version_str = make_version_str(args[1], args[2]);
+
+    let htypelib = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("TypeLib")?;
+
+    let hguid = htypelib.open_subkey(guid)?;
+
+    let mut typelib_str = String::new();
+    let mut version = String::new();
+    if let Some(ref version_str) = version_str {
+        let hversion = hguid.open_subkey(version_str);
+        if let Ok(hversion) = hversion {
+            let tlib = hversion.get_value("");
+            if let Ok(tlib) = tlib {
+                typelib_str = tlib;
+                version = version_str.to_string();
+            }
+        }
+    } else {
+        let mut fver = 0.0;
+        for ver_or_error in hguid.enum_keys() {
+            let Ok(ver) = ver_or_error else {
+                break;
+            };
+            let hversion = hguid.open_subkey(&ver);
+            let Ok(hversion) = hversion else {
+                continue;
+            };
+            let tlib = hversion.get_value("");
+            let Ok(tlib) = tlib else {
+                continue;
+            };
+            let verdbl = ver.parse().unwrap();
+            if fver < verdbl {
+                fver = verdbl;
+                version = ver;
+                typelib_str = tlib;
+            }
+        }
+    }
+    if !typelib_str.is_empty() {
+        let typelib = oletypelib_from_guid(guid, &version);
+        if let Ok(typelib) = typelib {
+            let name = name_from_typelib(&typelib);
+            maybe_oletypelibdata = Some(OleTypeLibData {
+                typelib,
+                name: name.unwrap_or(String::new()),
+            });
+        }
+    }
+    if let Some(typelibdata) = maybe_oletypelibdata {
+        Ok(typelibdata)
+    } else {
+        let ver_desc = if let Some(version_str) = version_str {
+            format!("version {version_str}")
+        } else {
+            "".to_string()
+        };
+        Err(Error::Custom(format!(
+            "type library `{typelib_str}` {ver_desc} was not found"
+        )))        
+    }
+}
+
+fn make_version_str(major: &str, minor: &str) -> Option<String> {
+    if major.is_empty() {
+        return None;
+    }
+    let mut version_str = major.to_string();
+    if !minor.is_empty() {
+        version_str.push('.');
+        version_str.push_str(minor);
+    }
+    Some(version_str)
+}
+
+fn name_from_typelib(typelib: &ITypeLib) -> Result<String> {
+    let mut bstrname = BSTR::default();
+    unsafe { typelib.GetDocumentation(-1, None, Some(&mut bstrname), ptr::null_mut(), None) }?;
+    Ok(bstrname.to_string())
+}
+
+fn library_name_from_typelib(typelib: &ITypeLib) -> Result<String> {
+    let mut bstrname = BSTR::default();
+    unsafe { typelib.GetDocumentation(-1, Some(&mut bstrname), None, ptr::null_mut(), None) }?;
+    Ok(bstrname.to_string())
 }

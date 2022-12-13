@@ -1,5 +1,6 @@
 use crate::{
-    error::Result,
+    error::{Error, Result},
+    oleparamdata::OleParamData,
     util::{conv::ToWide, ole::ole_typedesc2val},
     OleTypeData,
 };
@@ -15,9 +16,9 @@ use windows::{
 #[derive(Debug)]
 pub struct OleMethodData {
     owner_typeinfo: Option<ITypeInfo>,
-    typeinfo: ITypeInfo,
+    pub typeinfo: ITypeInfo,
     name: String,
-    index: u32,
+    pub index: u32,
 }
 
 impl OleMethodData {
@@ -34,7 +35,6 @@ impl OleMethodData {
             return Ok(method);
         }
         for i in 0..unsafe { (*type_attr).cImplTypes } {
-            println!("{i}");
             if method.is_some() {
                 break;
             }
@@ -239,6 +239,41 @@ impl OleMethodData {
     }
     pub fn name(&self) -> &str {
         &self.name[..]
+    }
+    pub fn params(&self) -> Result<Vec<OleParamData>> {
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index) }?;
+
+        let mut len = 0;
+        let mut rgbstrnames = vec![BSTR::default(); 128];
+        let result = unsafe {
+            self.typeinfo.GetNames(
+                (*funcdesc).memid,
+                rgbstrnames.as_mut_ptr(),
+                (*funcdesc).cParams as u32 + 1,
+                &mut len,
+            )
+        };
+        if let Err(error) = result {
+            unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
+            return Err(Error::Custom(format!(
+                "ITypeInfo::GetNames call failed: {error}"
+            )));
+        }
+        let mut params = vec![];
+
+        if unsafe { (*funcdesc).cParams } > 0 {
+            for i in 1..len {
+                let param = OleParamData::make(
+                    self,
+                    self.index,
+                    i - 1,
+                    rgbstrnames[i as usize].to_string(),
+                );
+                params.push(param);
+            }
+        }
+        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
+        Ok(params)
     }
 }
 

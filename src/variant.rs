@@ -1,153 +1,24 @@
-use std::{mem::ManuallyDrop};
-use thiserror::Error;
+use std::{
+    ffi::{CStr, CString, OsStr, OsString},
+    mem::ManuallyDrop,
+};
 use windows::{
-    core::{IUnknown, BSTR, HRESULT},
+    core::{IUnknown, BSTR, HRESULT, PSTR},
     Win32::{
-        Foundation::{VARIANT_BOOL, CHAR},
-        System::{Com::{
-            IDispatch, SAFEARRAY, VARENUM, VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0,
-            VT_ARRAY, VT_BOOL, VT_BSTR, VT_BYREF, VT_CY, VT_DATE, VT_DECIMAL, VT_DISPATCH,
-            VT_ERROR, VT_I1, VT_I2, VT_I4, VT_I8, VT_INT, VT_R4, VT_R8, VT_UI1, VT_UI2, VT_UI4,
-            VT_UI8, VT_UINT, VT_UNKNOWN, VT_VARIANT, CY, VARIANT_0_0_0_0, VT_EMPTY, VT_NULL,
-        }, Ole::{SafeArrayCreateVector, SafeArrayPutElement}},
+        Foundation::{CHAR, VARIANT_BOOL, VARIANT_FALSE, VARIANT_TRUE},
+        System::{
+            Com::{
+                IDispatch, CY, SAFEARRAY, VARENUM, VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0,
+                VT_ARRAY, VT_BOOL, VT_BSTR, VT_BYREF, VT_CY, VT_DATE, VT_DECIMAL, VT_DISPATCH,
+                VT_EMPTY, VT_ERROR, VT_I1, VT_I2, VT_I4, VT_I8, VT_INT, VT_LPSTR, VT_NULL, VT_R4,
+                VT_R8, VT_UI1, VT_UI2, VT_UI4, VT_UI8, VT_UINT, VT_UNKNOWN, VT_VARIANT,
+            },
+            Ole::{SafeArrayCreateVector, SafeArrayPutElement},
+        },
     },
 };
 
-use crate::{Error, Result};
-
-/// Encapsulates the ways converting from a `VARIANT` can fail.
-#[derive(Copy, Clone, Debug, Error)]
-pub enum FromVariantError {
-    /// `VARIANT` pointer during conversion was null
-    #[error("VARIANT pointer is null")]
-    VariantPtrNull,
-    /// Unknown VT for
-    #[error("VARIANT cannot be this vartype: {0:p}")]
-    UnknownVarType(u16),
-}
-
-/// Helper type for the OLE/COM+ type DATE
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
-pub struct Date(f64); //DATE <--> F64
-
-impl AsRef<f64> for Date {
-    fn as_ref(&self) -> &f64 {
-        &self.0
-    }
-}
-impl From<f64> for Date {
-    fn from(i: f64) -> Self {
-        Date(i)
-    }
-}
-impl<'f> From<&'f f64> for Date {
-    fn from(i: &'f f64) -> Self {
-        Date(*i)
-    }
-}
-impl<'f> From<&'f mut f64> for Date {
-    fn from(i: &'f mut f64) -> Self {
-        Date(*i)
-    }
-}
-impl From<Date> for f64 {
-    fn from(o: Date) -> Self {
-        o.0
-    }
-}
-impl<'f> From<&'f Date> for f64 {
-    fn from(o: &'f Date) -> Self {
-        o.0
-    }
-}
-impl<'f> From<&'f mut Date> for f64 {
-    fn from(o: &'f mut Date) -> Self {
-        o.0
-    }
-}
-impl TryFrom<f64> for Date {
-    type Error = FromVariantError;
-
-    /// Does not return any errors.
-    fn try_from(val: f64) -> Result<Self, FromVariantError> {
-        Ok(Date::from(val))
-    }
-}
-impl TryFrom<Date, IntoVariantError> for f64 {
-    /// Does not return any errors.
-    fn try_from(val: Date) -> Result<Self, IntoVariantError> {
-        Ok(f64::from(val))
-    }
-}
-impl<'c> TryFrom<&'c f64> for Date {
-    type Error = FromVariantError;
-
-    /// Does not return any errors.
-    fn try_from(val: &'c f64) -> Result<Self, FromVariantError> {
-        Ok(Date::from(val))
-    }
-}
-impl<'c> TryFrom<&'c Date, IntoVariantError> for f64 {
-    /// Does not return any errors.
-    fn try_from(val: &'c Date) -> Result<Self, IntoVariantError> {
-        Ok(f64::from(val))
-    }
-}
-impl<'c> TryFrom<&'c mut f64> for Date {
-    type Error = FromVariantError;
-
-    /// Does not return any errors.
-    fn try_from(val: &'c mut f64) -> Result<Self, FromVariantError> {
-        Ok(Date::from(val))
-    }
-}
-impl<'c> TryFrom<&'c mut Date, IntoVariantError> for f64 {
-    /// Does not return any errors.
-    fn try_from(val: &'c mut Date) -> Result<Self, IntoVariantError> {
-        Ok(f64::from(val))
-    }
-}
-impl TryFrom<f64, SafeArrayError> for Date {
-    /// Does not return any errors.
-    fn try_from(val: f64) -> Result<Self, SafeArrayError> {
-        Ok(Date::from(val))
-    }
-}
-impl TryFrom<Date, SafeArrayError> for f64 {
-    /// Does not return any errors.
-    fn try_from(val: Date) -> Result<Self, SafeArrayError> {
-        Ok(f64::from(val))
-    }
-}
-impl TryFrom<f64, ElementError> for Date {
-    /// Does not return any errors.
-    fn try_from(val: f64) -> Result<Self, ElementError> {
-        Ok(Date::from(val))
-    }
-}
-impl TryFrom<Date, ElementError> for f64 {
-    /// Does not return any errors.
-    fn try_from(val: Date) -> Result<Self, ElementError> {
-        Ok(f64::from(val))
-    }
-}
-impl TryFrom<Box<Date>> for *mut f64 {
-    fn try_from(b: Box<Date>) -> Result<Self, IntoVariantError> {
-        let b = *b;
-        let inner = f64::from(b);
-        Ok(Box::into_raw(Box::new(inner)))
-    }
-}
-impl TryFrom<*mut f64> for Box<Date> {
-    fn try_from(inner: *mut f64) -> Result<Self, FromVariantError> {
-        if inner.is_null() {
-            return Err(FromVariantError::VariantPtrNull);
-        }
-        let inner = unsafe { *inner };
-        let wrapper = Date::from(inner);
-        Ok(Box::new(wrapper))
-    }
-}
+use crate::{error::Error, Result, ToWide};
 
 const VT_PUI1: VARENUM = VARENUM(VT_BYREF.0 | VT_UI1.0);
 const VT_PI2: VARENUM = VARENUM(VT_BYREF.0 | VT_I2.0);
@@ -179,7 +50,7 @@ impl From<VariantFactory> for VARIANT {
         Self {
             Anonymous: VARIANT_0 {
                 Anonymous: ManuallyDrop::new(VARIANT_0_0 {
-                    vt: VARENUM(vt.0 as u16),
+                    vt,
                     wReserved1: 0,
                     wReserved2: 0,
                     wReserved3: 0,
@@ -189,6 +60,55 @@ impl From<VariantFactory> for VARIANT {
         }
     }
 }
+
+/*pub union VARIANT_0_0_0 {
+    //pub llVal: i64,
+    //pub lVal: i32,
+    //pub bVal: u8,
+    //pub iVal: i16,
+    //pub fltVal: f32,
+    //pub dblVal: f64,
+    //pub boolVal: super::super::Foundation::VARIANT_BOOL,
+    pub __OBSOLETE__VARIANT_BOOL: super::super::Foundation::VARIANT_BOOL,
+    //pub scode: i32,
+    //pub cyVal: CY,
+    pub date: f64,
+    //pub bstrVal: ::std::mem::ManuallyDrop<::windows::core::BSTR>,
+    //pub punkVal: ::std::mem::ManuallyDrop<::core::option::Option<::windows::core::IUnknown>>,
+    //pub pdispVal: ::std::mem::ManuallyDrop<::core::option::Option<IDispatch>>,
+    pub parray: *mut SAFEARRAY,
+    pub pbVal: *mut u8,
+    pub piVal: *mut i16,
+    pub plVal: *mut i32,
+    pub pllVal: *mut i64,
+    pub pfltVal: *mut f32,
+    pub pdblVal: *mut f64,
+    pub pboolVal: *mut super::super::Foundation::VARIANT_BOOL,
+    pub __OBSOLETE__VARIANT_PBOOL: *mut super::super::Foundation::VARIANT_BOOL,
+    pub pscode: *mut i32,
+    pub pcyVal: *mut CY,
+    pub pdate: *mut f64,
+    pub pbstrVal: *mut ::windows::core::BSTR,
+    pub ppunkVal: *mut ::core::option::Option<::windows::core::IUnknown>,
+    pub ppdispVal: *mut ::core::option::Option<IDispatch>,
+    pub pparray: *mut *mut SAFEARRAY,
+    pub pvarVal: *mut VARIANT,
+    pub byref: *mut ::core::ffi::c_void,
+    //pub cVal: super::super::Foundation::CHAR,
+    //pub uiVal: u16,
+    //pub ulVal: u32,
+    //pub ullVal: u64,
+    //pub intVal: i32,
+    //pub uintVal: u32,
+    pub pdecVal: *mut super::super::Foundation::DECIMAL,
+    //pub pcVal: ::windows::core::PSTR,
+    pub puiVal: *mut u16,
+    pub pulVal: *mut u32,
+    pub pullVal: *mut u64,
+    pub pintVal: *mut i32,
+    pub puintVal: *mut u32,
+    pub Anonymous: ::std::mem::ManuallyDrop<VARIANT_0_0_0_0>,
+}*/
 
 impl From<i64> for VariantFactory {
     fn from(value: i64) -> Self {
@@ -226,19 +146,12 @@ impl From<f64> for VariantFactory {
     }
 }
 
-const VARIANT_FALSE: i16 = 0i16;
-const VARIANT_TRUE: i16 = -1i16;
-
 impl From<bool> for VariantFactory {
     fn from(value: bool) -> Self {
         Self(
             VT_BOOL,
             VARIANT_0_0_0 {
-                boolVal: if value {
-                    VARIANT_BOOL(VARIANT_TRUE)
-                } else {
-                    VARIANT_BOOL(VARIANT_FALSE)
-                },
+                boolVal: if value { VARIANT_TRUE } else { VARIANT_FALSE },
             },
         )
     }
@@ -254,7 +167,7 @@ impl From<HRESULT> for VariantFactory {
 impl From<CY> for VariantFactory {
     fn from(value: CY) -> Self {
         Self(VT_CY, VARIANT_0_0_0 { cyVal: value })
-    }    
+    }
 }
 
 #[allow(non_snake_case)]
@@ -282,6 +195,38 @@ impl From<String> for VariantFactory {
     fn from(value: String) -> Self {
         let value: BSTR = value.into();
         value.into()
+    }
+}
+
+impl From<&OsStr> for VariantFactory {
+    fn from(value: &OsStr) -> Self {
+        let value_wide = value.to_wide_null();
+        let value_bstr = BSTR::from_wide(&value_wide);
+        value_bstr.into()
+    }
+}
+
+impl From<OsString> for VariantFactory {
+    fn from(value: OsString) -> Self {
+        let value_wide = value.to_wide_null();
+        let value_bstr = BSTR::from_wide(&value_wide);
+        value_bstr.into()
+    }
+}
+
+impl TryFrom<&CStr> for VariantFactory {
+    type Error = Error;
+
+    fn try_from(value: &CStr) -> Result<Self> {
+        Ok(value.to_str()?.into())
+    }
+}
+
+impl TryFrom<CString> for VariantFactory {
+    type Error = Error;
+
+    fn try_from(value: CString) -> Result<Self> {
+        Ok(value.into_string()?.into())
     }
 }
 
@@ -375,7 +320,12 @@ impl From<*mut VARIANT_BOOL> for VariantFactory {
 
 impl From<*mut HRESULT> for VariantFactory {
     fn from(value: *mut HRESULT) -> Self {
-        Self(VT_PERROR, VARIANT_0_0_0 { pscode: &mut unsafe { (*value).0 } })
+        Self(
+            VT_PERROR,
+            VARIANT_0_0_0 {
+                pscode: &mut unsafe { (*value).0 },
+            },
+        )
     }
 }
 
@@ -445,6 +395,12 @@ impl From<u64> for VariantFactory {
     }
 }
 
+impl From<PSTR> for VariantFactory {
+    fn from(value: PSTR) -> Self {
+        Self(VT_LPSTR, VARIANT_0_0_0 { pcVal: value })
+    }
+}
+
 impl From<*mut u16> for VariantFactory {
     fn from(value: *mut u16) -> Self {
         Self(VT_PUI2, VARIANT_0_0_0 { puiVal: value })
@@ -463,33 +419,20 @@ impl From<*mut u64> for VariantFactory {
     }
 }
 
-impl From<VARIANT_0_0_0_0> for VariantFactory {
-    fn from(value: VARIANT_0_0_0_0) -> Self {
-        Self((), ())
-    }
-}
-
 fn safe_array_from_primitive_slice<T: Copy>(vt: VARENUM, slice: &[T]) -> Result<*mut SAFEARRAY> {
     let v0 = vt.0;
-    if v0 & VT_ARRAY.0 == 1 || v0 & VT_BYREF == 1 || v0 == VT_EMPTY || v0 == VT_NULL {
-        return Err(Error::Generic("Invalid slice contents for creation of SAFEARRAY"));
+    if v0 & VT_ARRAY.0 == 1 || v0 & VT_BYREF.0 == 1 || v0 == VT_EMPTY.0 || v0 == VT_NULL.0 {
+        return Err(Error::Generic(
+            "Invalid slice contents for creation of SAFEARRAY",
+        ));
     }
-    let sa =
-        unsafe { SafeArrayCreateVector(VARENUM(vt.0 as u16), 0, slice.len().try_into().unwrap()) };
+    let sa = unsafe { SafeArrayCreateVector(vt, 0, slice.len().try_into()?) };
     if sa.is_null() {
         return Err(Error::Generic("SAFEARRAY allocation failed"));
     }
     for (i, item) in slice.iter().enumerate() {
-        let i: i32 = i.try_into().unwrap();
-        unsafe { SafeArrayPutElement(&*sa, &i, (item as *const T) as *const _) }.unwrap();
+        let i: i32 = i.try_into()?;
+        unsafe { SafeArrayPutElement(&*sa, &i, (item as *const T) as *const _) }?;
     }
     Ok(sa)
 }
-
-/*pub union VARIANT_0_0_0 {
-    pub intVal: i32,
-    pub pdecVal: *mut super::super::Foundation::DECIMAL,
-    pub pcVal: ::windows::core::PSTR,
-    pub puintVal: *mut u32,
-    pub Anonymous: ::core::mem::ManuallyDrop<VARIANT_0_0_0_0>,
-}*/

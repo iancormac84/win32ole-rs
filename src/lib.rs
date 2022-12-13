@@ -1,15 +1,18 @@
-use crate::error::Result;
-use util::RegKey;
-use windows::Win32::System::Registry::HKEY_CLASSES_ROOT;
+#![feature(once_cell)]
+
+use crate::{error::Result, util::RegKey};
+use std::sync::LazyLock;
+use windows::Win32::System::Registry::{HKEY_CLASSES_ROOT, HKEY_LOCAL_MACHINE};
 
 pub mod error;
 mod oledata;
 mod olemethoddata;
 mod oleparam;
+mod oleparamdata;
 mod oletypedata;
 mod oletypelibdata;
 mod util;
-//mod variant;
+mod variant;
 
 pub use {
     oledata::OleData,
@@ -18,6 +21,18 @@ pub use {
     oletypelibdata::{oletypelib_from_guid, OleTypeLibData},
     util::conv::ToWide,
 };
+
+static G_RUNNING_NANO: LazyLock<bool> = LazyLock::new(|| {
+    let hsubkey = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels");
+    if let Ok(hsubkey) = hsubkey {
+        let result = hsubkey.get_value("NanoServer");
+        if result.is_ok() {
+            return true;
+        }
+    }
+    false
+});
 
 pub fn progids() -> Result<Vec<String>> {
     let hclsids = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("CLSID")?;
