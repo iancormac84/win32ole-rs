@@ -4,43 +4,30 @@ use crate::{
     oletypelibdata::typelib_file,
     util::{
         conv::ToWide,
-        ole::{get_class_id, ole_initialized, ole_typedesc2val},
+        ole::{ole_initialized, ole_typedesc2val},
     },
     OleMethodData,
 };
 use std::{ffi::OsStr, ptr};
 use windows::{
     core::{BSTR, GUID, PCWSTR},
-    Win32::{
-        Globalization::GetUserDefaultLCID,
-        System::{
-            Com::{
-                CoCreateInstance, IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID,
-                CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, INVOKE_FUNC, INVOKE_PROPERTYGET,
-                INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND,
-            },
-            Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
+    Win32::System::{
+        Com::{
+            IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, INVOKE_FUNC, INVOKE_PROPERTYGET,
+            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND,
         },
+        Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
 };
 
+//TODO: Remove dispatch member variable possibly by making initialized IDispatch'es global
 pub struct OleTypeData {
-    dispatch: Option<IDispatch>,
+    pub dispatch: Option<IDispatch>,
     pub typeinfo: ITypeInfo,
+    pub name: String,
 }
 
 impl OleTypeData {
-    pub fn from_prog_id<S: AsRef<OsStr>>(prog_id: S) -> Result<OleTypeData> {
-        ole_initialized();
-        let app_clsid = get_class_id(prog_id)?;
-        let flags = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER;
-        let dispatch: IDispatch = unsafe { CoCreateInstance(&app_clsid, None, flags)? };
-        let typeinfo = unsafe { dispatch.GetTypeInfo(0, GetUserDefaultLCID())? };
-        Ok(OleTypeData {
-            dispatch: Some(dispatch),
-            typeinfo,
-        })
-    }
     pub fn from_typelib_and_oleclass<S: AsRef<OsStr>>(
         typelib: S,
         oleclass: S,
@@ -60,6 +47,22 @@ impl OleTypeData {
                 typelib.as_ref().to_str().unwrap()
             )));
         }
+    }
+    pub fn from_itypeinfo(typeinfo: &ITypeInfo) -> Result<OleTypeData> {
+        let mut index = 0;
+        let mut typelib = None;
+        unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) }?;
+        let typelib = typelib.unwrap();
+        let mut bstr = BSTR::default();
+        unsafe {
+            typelib.GetDocumentation(index as i32, Some(&mut bstr), None, ptr::null_mut(), None)
+        }?;
+        let typedata = OleTypeData {
+            dispatch: None,
+            typeinfo: typeinfo.clone(),
+            name: bstr.to_string(),
+        };
+        Ok(typedata)
     }
     fn ole_docinfo_from_type(
         &self,
@@ -215,6 +218,7 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Op
             typedata = Some(OleTypeData {
                 dispatch: None,
                 typeinfo,
+                name: bstrname.to_string(),
             });
             found = true;
         }

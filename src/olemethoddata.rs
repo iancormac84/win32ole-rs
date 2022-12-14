@@ -8,8 +8,8 @@ use std::{ffi::OsStr, ptr};
 use windows::{
     core::{BSTR, PCWSTR},
     Win32::System::Com::{
-        ITypeInfo, IMPLTYPEFLAG_FSOURCE, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET,
-        INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, VARENUM,
+        ITypeInfo, IMPLTYPEFLAGS, IMPLTYPEFLAG_FSOURCE, INVOKEKIND, INVOKE_FUNC,
+        INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, VARENUM,
     },
 };
 
@@ -53,13 +53,12 @@ impl OleMethodData {
     }
     fn docinfo_from_type(
         &self,
-        method_index: u32,
         name: Option<*mut BSTR>,
         helpstr: Option<*mut BSTR>,
         helpcontext: *mut u32,
         helpfile: Option<*mut BSTR>,
     ) -> Result<()> {
-        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(method_index)? };
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index)? };
         unsafe {
             self.typeinfo.GetDocumentation(
                 (*funcdesc).memid,
@@ -72,35 +71,23 @@ impl OleMethodData {
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(())
     }
-    pub fn helpstring(&self, method_index: u32) -> Result<String> {
+    pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
-        self.docinfo_from_type(
-            method_index,
-            None,
-            Some(&mut helpstring),
-            ptr::null_mut(),
-            None,
-        )?;
+        self.docinfo_from_type(None, Some(&mut helpstring), ptr::null_mut(), None)?;
         Ok(String::try_from(helpstring)?)
     }
-    pub fn helpfile(&self, method_index: u32) -> Result<String> {
+    pub fn helpfile(&self) -> Result<String> {
         let mut helpfile = BSTR::default();
-        self.docinfo_from_type(
-            method_index,
-            None,
-            None,
-            ptr::null_mut(),
-            Some(&mut helpfile),
-        )?;
+        self.docinfo_from_type(None, None, ptr::null_mut(), Some(&mut helpfile))?;
         Ok(String::try_from(helpfile)?)
     }
-    pub fn helpcontext(&self, method_index: u32) -> Result<u32> {
+    pub fn helpcontext(&self) -> Result<u32> {
         let mut helpcontext = 0;
-        self.docinfo_from_type(method_index, None, None, &mut helpcontext, None)?;
+        self.docinfo_from_type(None, None, &mut helpcontext, None)?;
         Ok(helpcontext)
     }
-    pub fn dispid(&self, method_index: u32) -> Result<i32> {
-        let res = unsafe { self.typeinfo.GetFuncDesc(method_index)? };
+    pub fn dispid(&self) -> Result<i32> {
+        let res = unsafe { self.typeinfo.GetFuncDesc(self.index)? };
         let dispid = unsafe { (*res).memid };
         unsafe { self.typeinfo.ReleaseFuncDesc(res) };
         Ok(dispid)
@@ -186,27 +173,24 @@ impl OleMethodData {
 
             let flags = result.unwrap();
 
-            if flags & IMPLTYPEFLAG_FSOURCE.0 != 0 {
+            if flags & IMPLTYPEFLAG_FSOURCE != IMPLTYPEFLAGS(0) {
                 let result = unsafe {
                     self.owner_typeinfo
                         .as_ref()
                         .unwrap()
                         .GetRefTypeOfImplType(i as u32)
                 };
-                if result.is_err() {
+                let Ok(href) = result else {
                     continue;
-                }
-                let href = result.unwrap();
+                };
                 let result = unsafe { self.owner_typeinfo.as_ref().unwrap().GetRefTypeInfo(href) };
-                if result.is_err() {
+                let Ok(ref_type_info) = result else {
                     continue;
-                }
-                let ref_type_info = result.unwrap();
+                };
                 let result = unsafe { ref_type_info.GetFuncDesc(self.index) };
-                if result.is_err() {
+                let Ok(funcdesc) = result else {
                     continue;
-                }
-                let funcdesc = result.unwrap();
+                };
                 let mut bstrname = BSTR::default();
                 let result = unsafe {
                     ref_type_info.GetDocumentation(
@@ -275,6 +259,12 @@ impl OleMethodData {
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(params)
     }
+    pub fn offset_vtbl(&self) -> Result<i16> {
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index) }?;
+        let offset_vtbl = unsafe { (*funcdesc).oVft };
+        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
+        Ok(offset_vtbl)
+    }
 }
 
 pub(crate) fn ole_methods_from_typeinfo(
@@ -318,8 +308,8 @@ fn ole_method_sub<S: AsRef<OsStr>>(
         }
         let result = unsafe { (*typeinfo).GetFuncDesc(i as u32) };
         let Ok(funcdesc) = result else {
-                continue;
-            };
+            continue;
+        };
 
         let mut bstrname = BSTR::default();
         let result = unsafe {

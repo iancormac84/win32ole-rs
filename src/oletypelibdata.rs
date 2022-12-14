@@ -2,20 +2,93 @@ use std::{ffi::OsStr, path::PathBuf, ptr};
 
 use crate::{
     error::{Error, Result},
-    util::{conv::ToWide, RegKey},
+    util::{
+        conv::{os_string_from_ptr, ToWide},
+        RegKey,
+    },
+    OleTypeData,
 };
 use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::{
         Foundation::E_UNEXPECTED,
+        Globalization::GetUserDefaultLCID,
         System::{
-            Com::ITypeLib,
+            Com::{ITypeInfo, ITypeLib},
             Environment::ExpandEnvironmentStringsW,
-            Ole::{LoadTypeLibEx, REGKIND_NONE},
+            Ole::{
+                LoadTypeLibEx, QueryPathOfRegTypeLib, LIBFLAG_FHIDDEN, LIBFLAG_FRESTRICTED,
+                REGKIND_NONE,
+            },
             Registry::HKEY_CLASSES_ROOT,
         },
     },
 };
+
+fn isdigit(c: char) -> bool {
+    ('0'..='9').contains(&c)
+}
+
+fn atof(s: &str) -> f64 {
+    // This function stolen from either Rolf Neugebauer or Andrew Tolmach.
+    // Probably Rolf.
+    let mut a = 0.0;
+    let mut e: i32 = 0;
+
+    let mut cur_idx = 0;
+    for (idx, c) in s.chars().enumerate() {
+        cur_idx = idx;
+        if isdigit(c) {
+            a = a * 10.0 + (c as u32 - '0' as u32) as f64;
+        } else {
+            break;
+        }
+    }
+
+    if &s[cur_idx..=cur_idx] == "." {
+        cur_idx += 1;
+        let n = cur_idx;
+        for (idx, c) in s[n..].chars().enumerate() {
+            cur_idx = idx;
+            if isdigit(c) {
+                a = a * 10.0 + (c as u32 - '0' as u32) as f64;
+                e -= 1;
+            } else {
+                break;
+            }
+        }
+    }
+    if &s[cur_idx..=cur_idx] == "e" || &s[cur_idx..=cur_idx] == "E" {
+        let mut sign: i8 = 1;
+        let mut i = 0;
+        cur_idx += 1;
+        if &s[cur_idx..=cur_idx] == "+" {
+            cur_idx += 1;
+        } else if &s[cur_idx..=cur_idx] == "-" {
+            cur_idx += 1;
+            sign = -1;
+        }
+        let n = cur_idx;
+        for c in s[n..].chars() {
+            if isdigit(c) {
+                i = i * 10 + (c as u32 - '0' as u32);
+            }
+        }
+
+        e += i as i32 * sign as i32;
+    }
+
+    while e > 0 {
+        a *= 10.0;
+        e -= 1;
+    }
+
+    while e < 0 {
+        a *= 0.1;
+        e += 1;
+    }
+    a
+}
 
 pub struct OleTypeLibData {
     pub typelib: ITypeLib,
@@ -44,12 +117,19 @@ impl OleTypeLibData {
             } else {
                 Err(Error::Custom(format!(
                     "type library `{typelib_str}` not found",
-                    
                 )))
             }
         } else {
             typelibdata
         }
+    }
+    pub fn from_itypeinfo(typeinfo: &ITypeInfo) -> Result<OleTypeLibData> {
+        let mut typelib = None;
+        let mut index = 0;
+        unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) }?;
+        let typelib = typelib.unwrap();
+        let name = library_name_from_typelib(&typelib)?;
+        Ok(OleTypeLibData { typelib, name })
     }
     pub fn guid(&self) -> Result<GUID> {
         let lib_attr = unsafe { self.typelib.GetLibAttr() }?;
@@ -73,6 +153,54 @@ impl OleTypeLibData {
             Err(error) => Err(error.into()),
         }
     }
+    pub fn major_version(&self) -> Result<u16> {
+        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
+        let ver = unsafe { (*lib_attr).wMajorVerNum };
+        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
+        Ok(ver)
+    }
+    pub fn minor_version(&self) -> Result<u16> {
+        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
+        let ver = unsafe { (*lib_attr).wMinorVerNum };
+        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
+        Ok(ver)
+    }
+    pub fn path(&self) -> Result<PathBuf> {
+        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
+        let result = unsafe {
+            QueryPathOfRegTypeLib(
+                &(*lib_attr).guid,
+                (*lib_attr).wMajorVerNum,
+                (*lib_attr).wMinorVerNum,
+                GetUserDefaultLCID(),
+            )
+        };
+        if let Err(error) = result {
+            unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
+            return Err(Error::Custom(format!(
+                "failed to QueryPathOfRegTypeTypeLib: {error}"
+            )));
+        }
+
+        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
+        let bstr = result.unwrap();
+        let path = unsafe { os_string_from_ptr(bstr) };
+        Ok(path.into())
+    }
+    pub fn visible(&self) -> Result<bool> {
+        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
+
+        let visible = unsafe {
+            (*lib_attr).wLibFlags == 0
+                || (*lib_attr).wLibFlags & LIBFLAG_FRESTRICTED.0 as u16 != 0
+                || (*lib_attr).wLibFlags & LIBFLAG_FHIDDEN.0 as u16 != 0
+        };
+        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
+        Ok(visible)
+    }
+    pub fn ole_types(&self) -> Result<Vec<OleTypeData>> {
+        ole_types_from_typelib(&self.typelib)
+    }
 }
 
 fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
@@ -85,6 +213,7 @@ fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
             break;
         }
         let clsid = clsid_or_error?;
+        println!("clsid is {clsid}");
 
         let hclsid = htypelib.open_subkey(clsid);
         if let Ok(hclsid) = hclsid {
@@ -95,12 +224,12 @@ fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
                 }
                 let version = version_or_error?;
                 let hversion = hclsid.open_subkey(&version);
-                let verdbl = version.parse().unwrap();
-                if hversion.is_err() || fver > verdbl {
+                println!("version is {version}");
+                if hversion.is_err() || fver > atof(&version) {
                     continue;
                 }
                 let hversion = hversion?;
-                fver = verdbl;
+                fver = atof(&version);
                 let typelib = hversion.get_value("");
                 if typelib.is_err() {
                     continue;
@@ -278,7 +407,7 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
         Err(Error::Custom(format!(
             "type library `{}` was not found",
             typelib_str.as_ref()
-        )))        
+        )))
     }
 }
 
@@ -316,9 +445,9 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
             let Ok(tlib) = tlib else {
                 continue;
             };
-            let verdbl = ver.parse().unwrap();
-            if fver < verdbl {
-                fver = verdbl;
+
+            if fver < atof(&ver) {
+                fver = atof(&ver);
                 version = ver;
                 typelib_str = tlib;
             }
@@ -344,7 +473,7 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
         };
         Err(Error::Custom(format!(
             "type library `{typelib_str}` {ver_desc} was not found"
-        )))        
+        )))
     }
 }
 
@@ -370,4 +499,32 @@ fn library_name_from_typelib(typelib: &ITypeLib) -> Result<String> {
     let mut bstrname = BSTR::default();
     unsafe { typelib.GetDocumentation(-1, Some(&mut bstrname), None, ptr::null_mut(), None) }?;
     Ok(bstrname.to_string())
+}
+
+fn ole_types_from_typelib(typelib: &ITypeLib) -> Result<Vec<OleTypeData>> {
+    let count = unsafe { typelib.GetTypeInfoCount() };
+    let mut classes = vec![];
+    for i in 0..count {
+        let mut bstr = BSTR::default();
+        let result = unsafe {
+            typelib.GetDocumentation(i as i32, Some(&mut bstr), None, ptr::null_mut(), None)
+        };
+        if result.is_err() {
+            continue;
+        }
+
+        let typeinfo = unsafe { typelib.GetTypeInfo(i) };
+        let Ok(typeinfo) = typeinfo else {
+            continue;
+        };
+
+        let oletype = OleTypeData {
+            dispatch: None,
+            typeinfo,
+            name: bstr.to_string(),
+        };
+
+        classes.push(oletype);
+    }
+    Ok(classes)
 }
