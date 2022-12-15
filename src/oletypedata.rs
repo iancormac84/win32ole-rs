@@ -4,7 +4,7 @@ use crate::{
     oletypelibdata::typelib_file,
     util::{
         conv::ToWide,
-        ole::{ole_initialized, ole_typedesc2val},
+        ole::{ole_initialized, ole_typedesc2val, ole_docinfo_from_type},
     },
     OleMethodData,
 };
@@ -14,7 +14,7 @@ use windows::{
     Win32::System::{
         Com::{
             IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, INVOKE_FUNC, INVOKE_PROPERTYGET,
-            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND,
+            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND, IMPLTYPEFLAGS, IMPLTYPEFLAG_FSOURCE, IMPLTYPEFLAG_FDEFAULT,
         },
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
@@ -64,33 +64,19 @@ impl OleTypeData {
         };
         Ok(typedata)
     }
-    fn ole_docinfo_from_type(
-        &self,
-        name: Option<*mut BSTR>,
-        helpstr: Option<*mut BSTR>,
-        helpcontext: *mut u32,
-        helpfile: Option<*mut BSTR>,
-    ) -> Result<()> {
-        let mut tlib: Option<ITypeLib> = None;
-        let mut index = 0;
-        unsafe { self.typeinfo.GetContainingTypeLib(&mut tlib, &mut index)? };
-        let tlib = tlib.unwrap();
-        unsafe { tlib.GetDocumentation(index as i32, name, helpstr, helpcontext, helpfile)? };
-        Ok(())
-    }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
-        self.ole_docinfo_from_type(None, Some(&mut helpstring), ptr::null_mut(), None)?;
+        ole_docinfo_from_type(&self.typeinfo, Some(&mut helpstring), None, ptr::null_mut(), None)?;
         Ok(String::try_from(helpstring)?)
     }
     pub fn helpfile(&self) -> Result<String> {
         let mut helpfile = BSTR::default();
-        self.ole_docinfo_from_type(None, None, ptr::null_mut(), Some(&mut helpfile))?;
+        ole_docinfo_from_type(&self.typeinfo, None, None, ptr::null_mut(), Some(&mut helpfile))?;
         Ok(String::try_from(helpfile)?)
     }
     pub fn helpcontext(&self) -> Result<u32> {
         let mut helpcontext = 0;
-        self.ole_docinfo_from_type(None, None, &mut helpcontext, None)?;
+        ole_docinfo_from_type(&self.typeinfo, None, None, &mut helpcontext, None)?;
         Ok(helpcontext)
     }
     pub fn major_version(&self) -> Result<u16> {
@@ -193,6 +179,18 @@ impl OleTypeData {
             INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
         )
     }
+    pub fn implemented_ole_types(&self) -> Result<Vec<OleTypeData>> {
+        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAGS(0))
+    }
+    pub fn source_ole_types(&self) -> Result<Vec<OleTypeData>> {
+        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FSOURCE)
+    }
+    pub fn default_event_sources(&self) -> Result<Vec<OleTypeData>> {
+        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FSOURCE|IMPLTYPEFLAG_FDEFAULT)
+    }
+    pub fn default_ole_types(&self) -> Result<Vec<OleTypeData>> {
+        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FDEFAULT)
+    }
 }
 
 fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Option<OleTypeData> {
@@ -225,4 +223,34 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Op
         i += 1;
     }
     typedata
+}
+
+fn ole_type_impl_ole_types(typeinfo: &ITypeInfo, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
+    let mut types = vec![];
+    let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
+    
+    for i in 0..unsafe { (*type_attr).cImplTypes } {
+        let flags = unsafe { typeinfo.GetImplTypeFlags(i as u32) };
+        let Ok(flags) = flags else {
+            continue;
+        };
+
+        let href = unsafe { typeinfo.GetRefTypeOfImplType(i as u32) };
+        let Ok(href) = href else {
+            continue;
+        };
+        let ref_type_info = unsafe { typeinfo.GetRefTypeInfo(href) };
+        let Ok(ref_type_info) = ref_type_info else {
+            continue;
+        };
+
+        if (flags & implflags) == implflags {
+            let type_ = OleTypeData::from_itypeinfo(&ref_type_info);
+            if let Ok(type_) = type_ {
+                types.push(type_);
+            }
+        }
+    }
+    unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
+    Ok(types)
 }

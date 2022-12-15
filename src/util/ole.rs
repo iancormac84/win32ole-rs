@@ -187,7 +187,7 @@ pub(crate) fn ole_usertype2val(
     Some(type_)
 }
 
-fn ole_docinfo_from_type(
+pub(crate) fn ole_docinfo_from_type(
     typeinfo: &ITypeInfo,
     name: Option<*mut BSTR>,
     helpstr: Option<*mut BSTR>,

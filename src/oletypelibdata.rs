@@ -213,7 +213,6 @@ fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
             break;
         }
         let clsid = clsid_or_error?;
-        println!("clsid is {clsid}");
 
         let hclsid = htypelib.open_subkey(clsid);
         if let Ok(hclsid) = hclsid {
@@ -224,7 +223,6 @@ fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
                 }
                 let version = version_or_error?;
                 let hversion = hclsid.open_subkey(&version);
-                println!("version is {version}");
                 if hversion.is_err() || fver > atof(&version) {
                     continue;
                 }
