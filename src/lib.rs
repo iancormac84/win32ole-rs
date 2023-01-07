@@ -80,7 +80,7 @@ pub fn progids() -> Result<Vec<String>> {
     Ok(progids)
 }
 
-pub fn typelibs() -> Result<Vec<OleTypeLibData>> {
+pub fn typelibs() -> Result<Vec<Result<OleTypeLibData>>> {
     let htypelib = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("TypeLib")?;
     let mut typelibs = vec![];
 

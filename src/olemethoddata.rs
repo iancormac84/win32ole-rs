@@ -4,7 +4,10 @@ use crate::{
     util::{conv::ToWide, ole::ole_typedesc2val},
     OleTypeData,
 };
-use std::{ffi::OsStr, ptr::{self, NonNull}};
+use std::{
+    ffi::OsStr,
+    ptr::{self, NonNull},
+};
 use windows::{
     core::{BSTR, PCWSTR},
     Win32::System::Com::{

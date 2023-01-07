@@ -1,4 +1,9 @@
-use std::{ffi::OsStr, iter::zip, path::PathBuf, ptr};
+use std::{
+    ffi::OsStr,
+    iter::zip,
+    path::PathBuf,
+    ptr::{self, NonNull},
+};
 
 use crate::{
     error::{Error, OleError, Result},
@@ -15,7 +20,7 @@ use windows::{
         Foundation::E_UNEXPECTED,
         Globalization::GetUserDefaultLCID,
         System::{
-            Com::{ITypeInfo, ITypeLib},
+            Com::{ITypeInfo, ITypeLib, TLIBATTR},
             Environment::ExpandEnvironmentStringsW,
             Ole::{
                 LoadTypeLibEx, QueryPathOfRegTypeLib, LIBFLAG_FHIDDEN, LIBFLAG_FRESTRICTED,
@@ -94,6 +99,7 @@ fn atof(s: &str) -> f64 {
 pub struct OleTypeLibData {
     typelib: ITypeLib,
     name: String,
+    tlib_attr: NonNull<TLIBATTR>,
 }
 
 impl OleTypeLibData {
@@ -111,9 +117,12 @@ impl OleTypeLibData {
             let typelib = unsafe { LoadTypeLibEx(typelib_pcwstr, REGKIND_NONE) };
             if let Ok(typelib) = typelib {
                 let name = name_from_typelib(&typelib);
+                let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+                let tlib_attr = NonNull::new(tlib_attr).unwrap();
                 Ok(OleTypeLibData {
                     typelib,
                     name: name.unwrap_or(String::new()),
+                    tlib_attr,
                 })
             } else {
                 Err(Error::Custom(format!(
@@ -139,9 +148,12 @@ impl OleTypeLibData {
             let typelib = unsafe { LoadTypeLibEx(typelib_pcwstr, REGKIND_NONE) };
             if let Ok(typelib) = typelib {
                 let name = name_from_typelib(&typelib);
+                let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+                let tlib_attr = NonNull::new(tlib_attr).unwrap();
                 Ok(OleTypeLibData {
                     typelib,
                     name: name.unwrap_or(String::new()),
+                    tlib_attr,
                 })
             } else {
                 Err(Error::Custom(format!(
@@ -167,9 +179,12 @@ impl OleTypeLibData {
             let typelib = unsafe { LoadTypeLibEx(typelib_pcwstr, REGKIND_NONE) };
             if let Ok(typelib) = typelib {
                 let name = name_from_typelib(&typelib);
+                let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+                let tlib_attr = NonNull::new(tlib_attr).unwrap();
                 Ok(OleTypeLibData {
                     typelib,
                     name: name.unwrap_or(String::new()),
+                    tlib_attr,
                 })
             } else {
                 Err(Error::Custom(format!(
@@ -180,11 +195,14 @@ impl OleTypeLibData {
             typelibdata
         }
     }
-    pub fn make<S: AsRef<str>>(typelib: ITypeLib, name: S) -> OleTypeLibData {
-        OleTypeLibData {
+    pub fn make<S: AsRef<str>>(typelib: ITypeLib, name: S) -> Result<OleTypeLibData> {
+        let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+        let tlib_attr = NonNull::new(tlib_attr).unwrap();
+        Ok(OleTypeLibData {
             typelib,
             name: name.as_ref().to_string(),
-        }
+            tlib_attr,
+        })
     }
     pub fn from_itypeinfo(typeinfo: &ITypeInfo) -> Result<OleTypeLibData> {
         let mut typelib = None;
@@ -192,13 +210,16 @@ impl OleTypeLibData {
         unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) }?;
         let typelib = typelib.unwrap();
         let name = library_name_from_typelib(&typelib)?;
-        Ok(OleTypeLibData { typelib, name })
+        let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+        let tlib_attr = NonNull::new(tlib_attr).unwrap();
+        Ok(OleTypeLibData {
+            typelib,
+            name,
+            tlib_attr,
+        })
     }
-    pub fn guid(&self) -> Result<GUID> {
-        let lib_attr = unsafe { self.typelib.GetLibAttr() }?;
-        let guid = unsafe { (*lib_attr).guid };
-        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
-        Ok(guid)
+    pub fn guid(&self) -> GUID {
+        unsafe { self.tlib_attr.as_ref().guid }
     }
     pub fn name(&self) -> &str {
         &self.name
@@ -207,57 +228,43 @@ impl OleTypeLibData {
         library_name_from_typelib(&self.typelib)
     }
     pub fn version(&self) -> Result<f64> {
-        let lib_attr = unsafe { self.typelib.GetLibAttr() }?;
-        let major = unsafe { (*lib_attr).wMajorVerNum };
-        let minor = unsafe { (*lib_attr).wMinorVerNum };
+        let major = unsafe { self.tlib_attr.as_ref().wMajorVerNum };
+        let minor = unsafe { self.tlib_attr.as_ref().wMinorVerNum };
         let version = format!("{major}.{minor}");
         match version.parse() {
             Ok(version) => Ok(version),
             Err(error) => Err(error.into()),
         }
     }
-    pub fn major_version(&self) -> Result<u16> {
-        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
-        let ver = unsafe { (*lib_attr).wMajorVerNum };
-        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
-        Ok(ver)
+    pub fn major_version(&self) -> u16 {
+        unsafe { self.tlib_attr.as_ref().wMajorVerNum }
     }
-    pub fn minor_version(&self) -> Result<u16> {
-        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
-        let ver = unsafe { (*lib_attr).wMinorVerNum };
-        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
-        Ok(ver)
+    pub fn minor_version(&self) -> u16 {
+        unsafe { self.tlib_attr.as_ref().wMinorVerNum }
     }
     pub fn path(&self) -> Result<PathBuf> {
-        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
         let result = unsafe {
             QueryPathOfRegTypeLib(
-                &(*lib_attr).guid,
-                (*lib_attr).wMajorVerNum,
-                (*lib_attr).wMinorVerNum,
+                &self.tlib_attr.as_ref().guid,
+                self.tlib_attr.as_ref().wMajorVerNum,
+                self.tlib_attr.as_ref().wMinorVerNum,
                 GetUserDefaultLCID(),
             )
         };
         if let Err(error) = result {
-            unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
             return Err(OleError::runtime(error, "failed to QueryPathOfRegTypeTypeLib").into());
         }
 
-        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
         let bstr = result.unwrap();
         let path = unsafe { os_string_from_ptr(bstr) };
         Ok(path.into())
     }
-    pub fn visible(&self) -> Result<bool> {
-        let lib_attr = unsafe { self.typelib.GetLibAttr()? };
-
-        let visible = unsafe {
-            (*lib_attr).wLibFlags == 0
-                || (*lib_attr).wLibFlags & LIBFLAG_FRESTRICTED.0 as u16 != 0
-                || (*lib_attr).wLibFlags & LIBFLAG_FHIDDEN.0 as u16 != 0
-        };
-        unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
-        Ok(visible)
+    pub fn visible(&self) -> bool {
+        unsafe {
+            self.tlib_attr.as_ref().wLibFlags == 0
+                || self.tlib_attr.as_ref().wLibFlags & LIBFLAG_FRESTRICTED.0 as u16 != 0
+                || self.tlib_attr.as_ref().wLibFlags & LIBFLAG_FHIDDEN.0 as u16 != 0
+        }
     }
     pub fn ole_types(&self) -> Vec<Result<OleTypeData>> {
         ole_types_from_typelib(&self.typelib)
@@ -451,9 +458,12 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
                 let typelib = oletypelib_from_guid(&guid, &version);
                 if let Ok(typelib) = typelib {
                     let name = name_from_typelib(&typelib);
+                    let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+                    let tlib_attr = NonNull::new(tlib_attr).unwrap();
                     maybe_oletypelibdata = Some(OleTypeLibData {
                         typelib,
                         name: name.unwrap_or(String::new()),
+                        tlib_attr,
                     });
                     found = true;
                 }
@@ -516,9 +526,12 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
         let typelib = oletypelib_from_guid(guid, &version);
         if let Ok(typelib) = typelib {
             let name = name_from_typelib(&typelib);
+            let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+            let tlib_attr = NonNull::new(tlib_attr).unwrap();
             maybe_oletypelibdata = Some(OleTypeLibData {
                 typelib,
                 name: name.unwrap_or(String::new()),
+                tlib_attr,
             });
         }
     }

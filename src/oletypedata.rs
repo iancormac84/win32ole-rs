@@ -10,14 +10,18 @@ use crate::{
     },
     OleMethodData,
 };
-use std::{ffi::OsStr, iter::zip, ptr::{self, NonNull}};
+use std::{
+    ffi::OsStr,
+    iter::zip,
+    ptr::{self, NonNull},
+};
 use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
             IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
             IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND, TYPEATTR,
+            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEKIND,
         },
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
@@ -60,7 +64,7 @@ impl OleTypeData {
             dispatch,
             typeinfo,
             name: name.as_ref().to_string(),
-            type_attr
+            type_attr,
         })
     }
     pub fn helpstring(&self) -> Result<String> {
@@ -150,7 +154,11 @@ impl OleTypeData {
         if unsafe { self.type_attr.as_ref().typekind } != TKIND_ALIAS {
             return None;
         }
-        Some(ole_typedesc2val(&self.typeinfo, &(unsafe { self.type_attr.as_ref().tdescAlias }), None))
+        Some(ole_typedesc2val(
+            &self.typeinfo,
+            &(unsafe { self.type_attr.as_ref().tdescAlias }),
+            None,
+        ))
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
         ole_methods_from_typeinfo(
@@ -209,12 +217,15 @@ impl TryFrom<&ITypeInfo> for OleTypeData {
             dispatch: None,
             typeinfo: typeinfo.clone(),
             name: bstr.to_string(),
-            type_attr
+            type_attr,
         })
     }
 }
 
-fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Result<Option<OleTypeData>> {
+fn oleclass_from_typelib<P: AsRef<OsStr>>(
+    typelib: &ITypeLib,
+    oleclass: P,
+) -> Result<Option<OleTypeData>> {
     let typeinfos = TypeInfos::from(typelib);
     let ole_class_names = OleClassNames::from(typelib);
     let iter_pair = zip(typeinfos, ole_class_names);
