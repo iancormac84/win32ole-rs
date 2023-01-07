@@ -6,13 +6,16 @@ use windows::Win32::System::Registry::{HKEY_CLASSES_ROOT, HKEY_LOCAL_MACHINE};
 
 pub mod error;
 mod oledata;
+mod oleeventdata;
 mod olemethoddata;
 mod oleparam;
 mod oleparamdata;
 mod oletypedata;
 mod oletypelibdata;
+mod olevariabledata;
+pub mod types;
 mod util;
-mod variant;
+//mod variant;
 
 pub use {
     oledata::OleData,
@@ -97,7 +100,7 @@ pub fn typelibs() -> Result<Vec<OleTypeLibData>> {
                     if let Ok(name) = name {
                         let typelib = oletypelib_from_guid(&guid, &version);
                         if let Ok(typelib) = typelib {
-                            typelibs.push(OleTypeLibData { typelib, name });
+                            typelibs.push(OleTypeLibData::make(typelib, name));
                         }
                     }
                 }

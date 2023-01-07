@@ -1,4 +1,7 @@
-use crate::{error::Result, ToWide, G_RUNNING_NANO};
+use crate::{
+    error::{OleError, Result},
+    ToWide, G_RUNNING_NANO,
+};
 use std::{ffi::OsStr, ptr};
 use windows::{
     core::{Interface, BSTR, GUID, PCWSTR},
@@ -20,7 +23,8 @@ thread_local!(static OLE_INITIALIZED: OleInitialized = {
             OleInitialize(ptr::null_mut())
         };
         if let Err(error) = result {
-            panic!("Failed: OLE initialization. {error}");
+            let runtime_error = OleError::runtime(error, "failed: OLE initialization");
+            panic!("{runtime_error}");
         }
         OleInitialized(ptr::null_mut())
     }
@@ -58,7 +62,11 @@ pub fn get_class_id<S: AsRef<OsStr>>(s: S) -> Result<GUID> {
             Ok(guid) => Ok(guid),
             Err(_error) => match CLSIDFromString(prog_id) {
                 Ok(guid) => Ok(guid),
-                Err(error) => Err(error.into()),
+                Err(error) => Err(OleError::runtime(
+                    error,
+                    format!("unknown OLE server: `{}`", s.as_ref().to_str().unwrap()),
+                )
+                .into()),
             },
         }
     }

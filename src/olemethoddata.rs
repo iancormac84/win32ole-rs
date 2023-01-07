@@ -23,7 +23,7 @@ pub struct OleMethodData {
 
 impl OleMethodData {
     pub fn new<S: AsRef<OsStr>>(ole_type: &OleTypeData, name: S) -> Result<Option<OleMethodData>> {
-        OleMethodData::from_typeinfo(&ole_type.typeinfo, name)
+        OleMethodData::from_typeinfo(ole_type.typeinfo(), name)
     }
     pub fn from_typeinfo<S: AsRef<OsStr>>(
         typeinfo: &ITypeInfo,
@@ -228,7 +228,7 @@ impl OleMethodData {
         let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index) }?;
 
         let mut len = 0;
-        let mut rgbstrnames = vec![BSTR::default(); 128];
+        let mut rgbstrnames = vec![BSTR::default(); unsafe { (*funcdesc).cParams } as usize + 1];
         let result = unsafe {
             self.typeinfo.GetNames(
                 (*funcdesc).memid,

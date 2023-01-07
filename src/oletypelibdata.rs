@@ -1,7 +1,8 @@
-use std::{ffi::OsStr, path::PathBuf, ptr};
+use std::{ffi::OsStr, iter::zip, path::PathBuf, ptr};
 
 use crate::{
-    error::{Error, Result},
+    error::{Error, OleError, Result},
+    types::{OleClassNames, TypeInfos},
     util::{
         conv::{os_string_from_ptr, ToWide},
         RegKey,
@@ -26,7 +27,7 @@ use windows::{
 };
 
 fn isdigit(c: char) -> bool {
-    ('0'..='9').contains(&c)
+    c.is_ascii_digit()
 }
 
 fn atof(s: &str) -> f64 {
@@ -91,8 +92,8 @@ fn atof(s: &str) -> f64 {
 }
 
 pub struct OleTypeLibData {
-    pub typelib: ITypeLib,
-    pub name: String,
+    typelib: ITypeLib,
+    name: String,
 }
 
 impl OleTypeLibData {
@@ -123,6 +124,68 @@ impl OleTypeLibData {
             typelibdata
         }
     }
+    pub fn new2<S: AsRef<str>>(typelib_str: S, version: f64) -> Result<OleTypeLibData> {
+        let mut typelibdata = oletypelib_search_registry(&typelib_str);
+        if typelibdata.is_err() {
+            let version_str = version.to_string();
+            typelibdata = oletypelib_search_registry2([typelib_str.as_ref(), &version_str, ""]);
+        } else {
+            return typelibdata;
+        }
+        if typelibdata.is_err() {
+            let typelib_str = typelib_str.as_ref();
+            let typelib_vec = typelib_str.to_wide_null();
+            let typelib_pcwstr = PCWSTR::from_raw(typelib_vec.as_ptr());
+            let typelib = unsafe { LoadTypeLibEx(typelib_pcwstr, REGKIND_NONE) };
+            if let Ok(typelib) = typelib {
+                let name = name_from_typelib(&typelib);
+                Ok(OleTypeLibData {
+                    typelib,
+                    name: name.unwrap_or(String::new()),
+                })
+            } else {
+                Err(Error::Custom(format!(
+                    "type library `{typelib_str}` not found",
+                )))
+            }
+        } else {
+            typelibdata
+        }
+    }
+    pub fn new3<S: AsRef<str>>(typelib_str: S, major: S, minor: S) -> Result<OleTypeLibData> {
+        let mut typelibdata = oletypelib_search_registry(&typelib_str);
+        if typelibdata.is_err() {
+            typelibdata =
+                oletypelib_search_registry2([typelib_str.as_ref(), major.as_ref(), minor.as_ref()]);
+        } else {
+            return typelibdata;
+        }
+        if typelibdata.is_err() {
+            let typelib_str = typelib_str.as_ref();
+            let typelib_vec = typelib_str.to_wide_null();
+            let typelib_pcwstr = PCWSTR::from_raw(typelib_vec.as_ptr());
+            let typelib = unsafe { LoadTypeLibEx(typelib_pcwstr, REGKIND_NONE) };
+            if let Ok(typelib) = typelib {
+                let name = name_from_typelib(&typelib);
+                Ok(OleTypeLibData {
+                    typelib,
+                    name: name.unwrap_or(String::new()),
+                })
+            } else {
+                Err(Error::Custom(format!(
+                    "type library `{typelib_str}` not found",
+                )))
+            }
+        } else {
+            typelibdata
+        }
+    }
+    pub fn make<S: AsRef<str>>(typelib: ITypeLib, name: S) -> OleTypeLibData {
+        OleTypeLibData {
+            typelib,
+            name: name.as_ref().to_string(),
+        }
+    }
     pub fn from_itypeinfo(typeinfo: &ITypeInfo) -> Result<OleTypeLibData> {
         let mut typelib = None;
         let mut index = 0;
@@ -138,7 +201,7 @@ impl OleTypeLibData {
         Ok(guid)
     }
     pub fn name(&self) -> &str {
-        &self.name[..]
+        &self.name
     }
     pub fn library_name(&self) -> Result<String> {
         library_name_from_typelib(&self.typelib)
@@ -177,9 +240,7 @@ impl OleTypeLibData {
         };
         if let Err(error) = result {
             unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
-            return Err(Error::Custom(format!(
-                "failed to QueryPathOfRegTypeTypeLib: {error}"
-            )));
+            return Err(OleError::runtime(error, "failed to QueryPathOfRegTypeTypeLib").into());
         }
 
         unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
@@ -198,7 +259,7 @@ impl OleTypeLibData {
         unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
         Ok(visible)
     }
-    pub fn ole_types(&self) -> Result<Vec<OleTypeData>> {
+    pub fn ole_types(&self) -> Vec<OleTypeData> {
         ole_types_from_typelib(&self.typelib)
     }
 }
@@ -499,30 +560,20 @@ fn library_name_from_typelib(typelib: &ITypeLib) -> Result<String> {
     Ok(bstrname.to_string())
 }
 
-fn ole_types_from_typelib(typelib: &ITypeLib) -> Result<Vec<OleTypeData>> {
-    let count = unsafe { typelib.GetTypeInfoCount() };
+fn ole_types_from_typelib(typelib: &ITypeLib) -> Vec<OleTypeData> {
+    let ole_class_names = OleClassNames::from(typelib);
+    let typeinfos = TypeInfos::from(typelib);
+    let iter_pair = zip(ole_class_names, typeinfos);
     let mut classes = vec![];
-    for i in 0..count {
-        let mut bstr = BSTR::default();
-        let result = unsafe {
-            typelib.GetDocumentation(i as i32, Some(&mut bstr), None, ptr::null_mut(), None)
-        };
-        if result.is_err() {
+    for (ole_class_name, typeinfo) in iter_pair {
+        let Ok(ole_class_name) = ole_class_name else {
             continue;
-        }
-
-        let typeinfo = unsafe { typelib.GetTypeInfo(i) };
+        };
         let Ok(typeinfo) = typeinfo else {
             continue;
         };
-
-        let oletype = OleTypeData {
-            dispatch: None,
-            typeinfo,
-            name: bstr.to_string(),
-        };
-
+        let oletype = OleTypeData::make(None, typeinfo, ole_class_name);
         classes.push(oletype);
     }
-    Ok(classes)
+    classes
 }

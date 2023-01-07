@@ -6,6 +6,8 @@ use std::{
     string::FromUtf16Error,
 };
 
+use windows::core::HRESULT;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -20,6 +22,68 @@ pub enum Error {
     IntoString(IntoStringError),
     Generic(&'static str),
     Custom(String),
+    Ole(OleError),
+}
+
+#[derive(Debug)]
+pub enum OleErrorType {
+    Runtime,
+    QueryInterface,
+}
+
+impl fmt::Display for OleErrorType {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            OleErrorType::Runtime => write!(fmt, "Win32OleRuntimeError"),
+            OleErrorType::QueryInterface => write!(fmt, "Win32OleQueryInterfaceError"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct OleError {
+    error_type: OleErrorType,
+    hresult: HRESULT,
+    context_message: String,
+}
+
+impl OleError {
+    pub fn new<S: AsRef<str>, H: Into<HRESULT>>(
+        error_type: OleErrorType,
+        hresult: H,
+        context_message: S,
+    ) -> OleError {
+        OleError {
+            error_type,
+            hresult: hresult.into(),
+            context_message: context_message.as_ref().into(),
+        }
+    }
+    pub fn runtime<S: AsRef<str>, H: Into<HRESULT>>(hresult: H, context_message: S) -> OleError {
+        OleError::new(OleErrorType::Runtime, hresult, context_message)
+    }
+    pub fn interface<S: AsRef<str>, H: Into<HRESULT>>(hresult: H, context_message: S) -> OleError {
+        OleError::new(OleErrorType::QueryInterface, hresult, context_message)
+    }
+}
+
+impl fmt::Display for OleError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "{}: {}. HRESULT error code: {} ({})",
+            self.error_type,
+            self.context_message,
+            self.hresult,
+            self.hresult.message()
+        )
+    }
+}
+
+impl From<OleError> for Error {
+    fn from(err: OleError) -> Error {
+        Error::Ole(err)
+    }
 }
 
 /// Encapsulates the ways converting from a `VARIANT` can fail.
@@ -110,6 +174,7 @@ impl fmt::Display for Error {
             IntoString(ref err) => err.fmt(fmt),
             Generic(ref err) => err.fmt(fmt),
             Custom(ref err) => err.fmt(fmt),
+            Ole(ref err) => err.fmt(fmt),
         }
     }
 }

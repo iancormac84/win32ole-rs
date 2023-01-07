@@ -1,20 +1,23 @@
 use crate::{
-    error::{Error, Result},
+    error::{Error, OleError, Result},
     olemethoddata::ole_methods_from_typeinfo,
     oletypelibdata::typelib_file,
+    olevariabledata::OleVariableData,
+    types::{OleClassNames, TypeInfos},
     util::{
         conv::ToWide,
-        ole::{ole_initialized, ole_typedesc2val, ole_docinfo_from_type},
+        ole::{ole_docinfo_from_type, ole_initialized, ole_typedesc2val},
     },
     OleMethodData,
 };
-use std::{ffi::OsStr, ptr};
+use std::{ffi::OsStr, iter::zip, ptr};
 use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
-            IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, INVOKE_FUNC, INVOKE_PROPERTYGET,
-            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND, IMPLTYPEFLAGS, IMPLTYPEFLAG_FSOURCE, IMPLTYPEFLAG_FDEFAULT,
+            IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
+            IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
+            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND,
         },
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
@@ -22,56 +25,59 @@ use windows::{
 
 //TODO: Remove dispatch member variable possibly by making initialized IDispatch'es global
 pub struct OleTypeData {
-    pub dispatch: Option<IDispatch>,
-    pub typeinfo: ITypeInfo,
-    pub name: String,
+    dispatch: Option<IDispatch>,
+    typeinfo: ITypeInfo,
+    name: String,
 }
 
 impl OleTypeData {
-    pub fn from_typelib_and_oleclass<S: AsRef<OsStr>>(
-        typelib: S,
-        oleclass: S,
-    ) -> Result<OleTypeData> {
+    pub fn new<S: AsRef<OsStr>>(typelib: S, oleclass: S) -> Result<OleTypeData> {
         ole_initialized();
         let file = typelib_file(&typelib)?;
         let file_vec = file.to_wide_null();
         let typelib_iface =
             unsafe { LoadTypeLibEx(PCWSTR::from_raw(file_vec.as_ptr()), REGKIND_NONE)? };
         let maybe_typedata = oleclass_from_typelib(&typelib_iface, &oleclass);
-        if let Some(typedata) = maybe_typedata {
-            Ok(typedata)
-        } else {
-            return Err(Error::Custom(format!(
+        match maybe_typedata {
+            Some(typedata) => Ok(typedata),
+            None => Err(Error::Custom(format!(
                 "`{}` not found in `{}`",
                 oleclass.as_ref().to_str().unwrap(),
                 typelib.as_ref().to_str().unwrap()
-            )));
+            ))),
         }
     }
-    pub fn from_itypeinfo(typeinfo: &ITypeInfo) -> Result<OleTypeData> {
-        let mut index = 0;
-        let mut typelib = None;
-        unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) }?;
-        let typelib = typelib.unwrap();
-        let mut bstr = BSTR::default();
-        unsafe {
-            typelib.GetDocumentation(index as i32, Some(&mut bstr), None, ptr::null_mut(), None)
-        }?;
-        let typedata = OleTypeData {
-            dispatch: None,
-            typeinfo: typeinfo.clone(),
-            name: bstr.to_string(),
-        };
-        Ok(typedata)
+    pub fn make<S: AsRef<str>>(
+        dispatch: Option<IDispatch>,
+        typeinfo: ITypeInfo,
+        name: S,
+    ) -> OleTypeData {
+        OleTypeData {
+            dispatch,
+            typeinfo,
+            name: name.as_ref().to_string(),
+        }
     }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
-        ole_docinfo_from_type(&self.typeinfo, Some(&mut helpstring), None, ptr::null_mut(), None)?;
+        ole_docinfo_from_type(
+            &self.typeinfo,
+            Some(&mut helpstring),
+            None,
+            ptr::null_mut(),
+            None,
+        )?;
         Ok(String::try_from(helpstring)?)
     }
     pub fn helpfile(&self) -> Result<String> {
         let mut helpfile = BSTR::default();
-        ole_docinfo_from_type(&self.typeinfo, None, None, ptr::null_mut(), Some(&mut helpfile))?;
+        ole_docinfo_from_type(
+            &self.typeinfo,
+            None,
+            None,
+            ptr::null_mut(),
+            Some(&mut helpfile),
+        )?;
         Ok(String::try_from(helpfile)?)
     }
     pub fn helpcontext(&self) -> Result<u32> {
@@ -140,7 +146,7 @@ impl OleTypeData {
         unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
         visible
     }
-    pub fn variables(&self) -> Result<Vec<String>> {
+    pub fn variables(&self) -> Result<Vec<OleVariableData>> {
         let type_attr_ptr = unsafe { self.typeinfo.GetTypeAttr()? };
         let mut variables = vec![];
         for i in 0..unsafe { (*type_attr_ptr).cVars } {
@@ -154,7 +160,9 @@ impl OleTypeData {
             if res.is_err() || len == 0 || rgbstrnames.is_empty() {
                 continue;
             }
-            variables.push(String::try_from(rgbstrnames)?);
+            let index = i as u32;
+            let name = String::try_from(rgbstrnames)?;
+            variables.push(OleVariableData::new(&self.typeinfo, index, name));
             unsafe { self.typeinfo.ReleaseVarDesc(var_desc_ptr) };
         }
         Ok(variables)
@@ -173,7 +181,7 @@ impl OleTypeData {
         unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
         Some(alias)
     }
-    pub fn methods(&self) -> Result<Vec<OleMethodData>> {
+    pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
         ole_methods_from_typeinfo(
             &self.typeinfo,
             INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
@@ -186,49 +194,82 @@ impl OleTypeData {
         ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FSOURCE)
     }
     pub fn default_event_sources(&self) -> Result<Vec<OleTypeData>> {
-        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FSOURCE|IMPLTYPEFLAG_FDEFAULT)
+        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FSOURCE | IMPLTYPEFLAG_FDEFAULT)
     }
     pub fn default_ole_types(&self) -> Result<Vec<OleTypeData>> {
         ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FDEFAULT)
     }
+    pub fn typeinfo(&self) -> &ITypeInfo {
+        &self.typeinfo
+    }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl TryFrom<&ITypeInfo> for OleTypeData {
+    type Error = Error;
+
+    fn try_from(typeinfo: &ITypeInfo) -> Result<OleTypeData> {
+        let mut index = 0;
+        let mut typelib = None;
+        let result = unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) };
+        if let Err(error) = result {
+            return Err(OleError::interface(
+                error,
+                "failed to GetContainingTypeLib from ITypeInfo",
+            )
+            .into());
+        }
+        let typelib = typelib.unwrap();
+        let mut bstr = BSTR::default();
+        let result = unsafe {
+            typelib.GetDocumentation(index as i32, Some(&mut bstr), None, ptr::null_mut(), None)
+        };
+        if let Err(error) = result {
+            return Err(
+                OleError::interface(error, "failed to GetDocumentation from ITypeLib").into(),
+            );
+        }
+        let typedata = OleTypeData {
+            dispatch: None,
+            typeinfo: typeinfo.clone(),
+            name: bstr.to_string(),
+        };
+        Ok(typedata)
+    }
 }
 
 fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Option<OleTypeData> {
-    let mut found = false;
-    let mut typedata: Option<OleTypeData> = None;
-
-    let count = unsafe { typelib.GetTypeInfoCount() };
-    let mut i = 0;
-    while i < count && !found {
-        let typeinfo = unsafe { typelib.GetTypeInfo(i) };
+    let typeinfos = TypeInfos::from(typelib);
+    let ole_class_names = OleClassNames::from(typelib);
+    let iter_pair = zip(typeinfos, ole_class_names);
+    for (typeinfo, ole_class_name) in iter_pair {
         let Ok(typeinfo) = typeinfo else {
             continue;
         };
-        let mut bstrname = BSTR::default();
-        let result = unsafe {
-            typelib.GetDocumentation(i as i32, Some(&mut bstrname), None, ptr::null_mut(), None)
-        };
-        if result.is_err() {
+        let Ok(ole_class_name) = ole_class_name else {
             continue;
-        }
-        let oleclass = oleclass.as_ref();
-        if oleclass.to_str().unwrap() == bstrname {
-            typedata = Some(OleTypeData {
+        };
+        println!("ole_class_name is {ole_class_name}");
+        if ole_class_name == oleclass.as_ref().to_str().unwrap() {
+            return Some(OleTypeData {
                 dispatch: None,
                 typeinfo,
-                name: bstrname.to_string(),
+                name: ole_class_name,
             });
-            found = true;
         }
-        i += 1;
     }
-    typedata
+    None
 }
 
-fn ole_type_impl_ole_types(typeinfo: &ITypeInfo, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
+fn ole_type_impl_ole_types(
+    typeinfo: &ITypeInfo,
+    implflags: IMPLTYPEFLAGS,
+) -> Result<Vec<OleTypeData>> {
     let mut types = vec![];
     let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
-    
+
     for i in 0..unsafe { (*type_attr).cImplTypes } {
         let flags = unsafe { typeinfo.GetImplTypeFlags(i as u32) };
         let Ok(flags) = flags else {
@@ -245,7 +286,7 @@ fn ole_type_impl_ole_types(typeinfo: &ITypeInfo, implflags: IMPLTYPEFLAGS) -> Re
         };
 
         if (flags & implflags) == implflags {
-            let type_ = OleTypeData::from_itypeinfo(&ref_type_info);
+            let type_ = OleTypeData::try_from(&ref_type_info);
             if let Ok(type_) = type_ {
                 types.push(type_);
             }
