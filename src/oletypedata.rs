@@ -10,14 +10,14 @@ use crate::{
     },
     OleMethodData,
 };
-use std::{ffi::OsStr, iter::zip, ptr};
+use std::{ffi::OsStr, iter::zip, ptr::{self, NonNull}};
 use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
             IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
             IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND,
+            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEKIND, TYPEATTR,
         },
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
@@ -28,6 +28,7 @@ pub struct OleTypeData {
     dispatch: Option<IDispatch>,
     typeinfo: ITypeInfo,
     name: String,
+    type_attr: NonNull<TYPEATTR>,
 }
 
 impl OleTypeData {
@@ -37,7 +38,7 @@ impl OleTypeData {
         let file_vec = file.to_wide_null();
         let typelib_iface =
             unsafe { LoadTypeLibEx(PCWSTR::from_raw(file_vec.as_ptr()), REGKIND_NONE)? };
-        let maybe_typedata = oleclass_from_typelib(&typelib_iface, &oleclass);
+        let maybe_typedata = oleclass_from_typelib(&typelib_iface, &oleclass)?;
         match maybe_typedata {
             Some(typedata) => Ok(typedata),
             None => Err(Error::Custom(format!(
@@ -51,12 +52,16 @@ impl OleTypeData {
         dispatch: Option<IDispatch>,
         typeinfo: ITypeInfo,
         name: S,
-    ) -> OleTypeData {
-        OleTypeData {
+    ) -> Result<OleTypeData> {
+        let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
+        let type_attr = NonNull::new(type_attr).unwrap();
+
+        Ok(OleTypeData {
             dispatch,
             typeinfo,
             name: name.as_ref().to_string(),
-        }
+            type_attr
+        })
     }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
@@ -85,30 +90,19 @@ impl OleTypeData {
         ole_docinfo_from_type(&self.typeinfo, None, None, &mut helpcontext, None)?;
         Ok(helpcontext)
     }
-    pub fn major_version(&self) -> Result<u16> {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr()? };
-        let ver = unsafe { (*type_attr).wMajorVerNum };
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(ver)
+    pub fn major_version(&self) -> u16 {
+        unsafe { self.type_attr.as_ref().wMajorVerNum }
     }
-    pub fn minor_version(&self) -> Result<u16> {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr()? };
-        let ver = unsafe { (*type_attr).wMinorVerNum };
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(ver)
+    pub fn minor_version(&self) -> u16 {
+        unsafe { self.type_attr.as_ref().wMinorVerNum }
     }
-    pub fn typekind(&self) -> Result<TYPEKIND> {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr()? };
-        let typekind = unsafe { (*type_attr).typekind };
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(typekind)
+    pub fn typekind(&self) -> TYPEKIND {
+        unsafe { self.type_attr.as_ref().typekind }
     }
     #[allow(non_snake_case, unused_variables)]
-    pub fn ole_type(&self) -> Result<&str> {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr()? };
-
-        let kind = unsafe { (*type_attr).typekind.0 };
-        let type_ = match kind {
+    pub fn ole_type(&self) -> &str {
+        let kind = unsafe { self.type_attr.as_ref().typekind.0 };
+        match kind {
             0 => "Enum",
             1 => "Record",
             2 => "Module",
@@ -119,37 +113,22 @@ impl OleTypeData {
             7 => "Union",
             8 => "Max",
             _ => panic!("TYPEKIND({kind}) has no WINAPI raw representation"),
-        };
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(type_)
+        }
     }
-    pub fn guid(&self) -> Result<GUID> {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr()? };
-        let guid = unsafe { (*type_attr).guid };
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(guid)
+    pub fn guid(&self) -> GUID {
+        unsafe { self.type_attr.as_ref().guid }
     }
     pub fn progid(&self) -> Result<String> {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr()? };
-        let result = unsafe { ProgIDFromCLSID(&(*type_attr).guid)? };
-        let progid = unsafe { result.to_string().unwrap() };
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(progid)
+        let result = unsafe { ProgIDFromCLSID(&self.guid())? };
+        Ok(unsafe { result.to_string()? })
     }
     pub fn visible(&self) -> bool {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr() };
-        let Ok(type_attr) = type_attr else {
-            return true;
-        };
-        let typeflags = unsafe { (*type_attr).wTypeFlags };
-        let visible = typeflags & (TYPEFLAG_FHIDDEN.0 | TYPEFLAG_FRESTRICTED.0) as u16 == 0;
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        visible
+        let typeflags = unsafe { self.type_attr.as_ref().wTypeFlags };
+        typeflags & (TYPEFLAG_FHIDDEN.0 | TYPEFLAG_FRESTRICTED.0) as u16 == 0
     }
     pub fn variables(&self) -> Result<Vec<OleVariableData>> {
-        let type_attr_ptr = unsafe { self.typeinfo.GetTypeAttr()? };
         let mut variables = vec![];
-        for i in 0..unsafe { (*type_attr_ptr).cVars } {
+        for i in 0..unsafe { self.type_attr.as_ref().cVars } {
             let var_desc_ptr = unsafe { self.typeinfo.GetVarDesc(i as u32)? };
             let mut len = 0;
             let mut rgbstrnames = BSTR::default();
@@ -168,18 +147,10 @@ impl OleTypeData {
         Ok(variables)
     }
     pub fn src_type(&self) -> Option<String> {
-        let type_attr = unsafe { self.typeinfo.GetTypeAttr() };
-        if type_attr.is_err() {
-            return None;
-        };
-        let type_attr = type_attr.unwrap();
-        if unsafe { (*type_attr).typekind } != TKIND_ALIAS {
-            unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
+        if unsafe { self.type_attr.as_ref().typekind } != TKIND_ALIAS {
             return None;
         }
-        let alias = ole_typedesc2val(&self.typeinfo, &(unsafe { (*type_attr).tdescAlias }), None);
-        unsafe { self.typeinfo.ReleaseTypeAttr(type_attr) };
-        Some(alias)
+        Some(ole_typedesc2val(&self.typeinfo, &(unsafe { self.type_attr.as_ref().tdescAlias }), None))
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
         ole_methods_from_typeinfo(
@@ -231,16 +202,19 @@ impl TryFrom<&ITypeInfo> for OleTypeData {
                 OleError::interface(error, "failed to GetDocumentation from ITypeLib").into(),
             );
         }
-        let typedata = OleTypeData {
+        let type_attr = unsafe { typeinfo.GetTypeAttr()? };
+        let type_attr = NonNull::new(type_attr).unwrap();
+
+        Ok(OleTypeData {
             dispatch: None,
             typeinfo: typeinfo.clone(),
             name: bstr.to_string(),
-        };
-        Ok(typedata)
+            type_attr
+        })
     }
 }
 
-fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Option<OleTypeData> {
+fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Result<Option<OleTypeData>> {
     let typeinfos = TypeInfos::from(typelib);
     let ole_class_names = OleClassNames::from(typelib);
     let iter_pair = zip(typeinfos, ole_class_names);
@@ -253,14 +227,18 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(typelib: &ITypeLib, oleclass: P) -> Op
         };
         println!("ole_class_name is {ole_class_name}");
         if ole_class_name == oleclass.as_ref().to_str().unwrap() {
-            return Some(OleTypeData {
+            let type_attr = unsafe { typeinfo.GetTypeAttr()? };
+            let type_attr = NonNull::new(type_attr).unwrap();
+
+            return Ok(Some(OleTypeData {
                 dispatch: None,
                 typeinfo,
                 name: ole_class_name,
-            });
+                type_attr,
+            }));
         }
     }
-    None
+    Ok(None)
 }
 
 fn ole_type_impl_ole_types(

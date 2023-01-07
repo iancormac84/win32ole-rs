@@ -259,7 +259,7 @@ impl OleTypeLibData {
         unsafe { self.typelib.ReleaseTLibAttr(lib_attr) };
         Ok(visible)
     }
-    pub fn ole_types(&self) -> Vec<OleTypeData> {
+    pub fn ole_types(&self) -> Vec<Result<OleTypeData>> {
         ole_types_from_typelib(&self.typelib)
     }
 }
@@ -560,7 +560,7 @@ fn library_name_from_typelib(typelib: &ITypeLib) -> Result<String> {
     Ok(bstrname.to_string())
 }
 
-fn ole_types_from_typelib(typelib: &ITypeLib) -> Vec<OleTypeData> {
+fn ole_types_from_typelib(typelib: &ITypeLib) -> Vec<Result<OleTypeData>> {
     let ole_class_names = OleClassNames::from(typelib);
     let typeinfos = TypeInfos::from(typelib);
     let iter_pair = zip(ole_class_names, typeinfos);

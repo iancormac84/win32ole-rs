@@ -1,4 +1,4 @@
-use std::ptr;
+use std::ptr::{self, NonNull};
 
 use windows::{
     core::BSTR,
@@ -8,7 +8,7 @@ use windows::{
 pub struct TypeAttr {
     typeinfo: ITypeInfo,
     name: String,
-    type_attr: std::ptr::NonNull<TYPEATTR>,
+    type_attr: NonNull<TYPEATTR>,
 }
 
 impl TypeAttr {
@@ -21,7 +21,7 @@ impl TypeAttr {
         Ok(TypeAttr {
             typeinfo,
             name,
-            type_attr: std::ptr::NonNull::new(type_attr).unwrap(),
+            type_attr: NonNull::new(type_attr).unwrap(),
         })
     }
     pub fn name(&self) -> &str {

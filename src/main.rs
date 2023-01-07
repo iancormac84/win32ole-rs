@@ -7,6 +7,7 @@ fn main() {
     let excel = win32ole::OleTypeLibData::new1("Microsoft Excel 16.0 Object Library").unwrap();
     let ole_types = excel.ole_types();
     for ole_type in ole_types {
+        let ole_type = ole_type.unwrap();
         println!("{}", ole_type.name());
     }
     /*let mut iterator_method_record =

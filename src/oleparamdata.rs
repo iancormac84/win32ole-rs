@@ -1,5 +1,7 @@
+use std::ptr::NonNull;
+
 use windows::Win32::System::{
-    Com::ITypeInfo,
+    Com::{ITypeInfo, FUNCDESC},
     Ole::{PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT},
 };
 
@@ -9,70 +11,83 @@ use crate::{
     OleMethodData,
 };
 
-pub struct OleParamData {
-    typeinfo: ITypeInfo,
+pub struct OleParamData<'a> {
+    typeinfo: &'a ITypeInfo,
     method_index: u32,
     index: u32,
     name: String,
+    func_desc: NonNull<FUNCDESC>,
 }
 
-impl OleParamData {
+impl<'a> OleParamData<'a> {
     pub fn new(olemethod: &OleMethodData, n: u32) -> Result<OleParamData> {
-        oleparam_ole_param_from_index(&olemethod.typeinfo, olemethod.index, n as i32)
+        oleparam_ole_param_from_index(olemethod.typeinfo(), olemethod.index(), n as i32)
     }
     pub fn make(
         olemethod: &OleMethodData,
         method_index: u32,
         index: u32,
         name: String,
-    ) -> OleParamData {
-        OleParamData {
-            typeinfo: olemethod.typeinfo.clone(),
+    ) -> Result<OleParamData> {
+        let typeinfo = olemethod.typeinfo();
+        let func_desc = unsafe { typeinfo.GetFuncDesc(method_index) }?;
+        let func_desc = NonNull::new(func_desc).unwrap();
+
+        Ok(OleParamData {
+            typeinfo,
             method_index,
             index,
             name,
-        }
+            func_desc,
+        })
     }
     pub fn name(&self) -> &str {
-        &self.name[..]
+        &self.name
+    }
+    pub fn method_index(&self) -> u32 {
+        self.method_index
+    }
+    pub fn index(&self) -> u32 {
+        self.index
     }
     pub fn ole_type(&self) -> Result<String> {
-        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.method_index) }?;
         let typ = ole_typedesc2val(
             &self.typeinfo,
-            unsafe { &(*(*funcdesc).lprgelemdescParam.offset(self.index as isize)).tdesc },
+            unsafe {
+                &(*(self.func_desc.as_ref())
+                    .lprgelemdescParam
+                    .offset(self.index as isize))
+                .tdesc
+            },
             None,
         );
-        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(typ)
     }
     pub fn ole_type_detail(&self) -> Result<Vec<String>> {
-        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.method_index) }?;
         let mut typedetails = vec![];
         ole_typedesc2val(
             &self.typeinfo,
-            unsafe { &(*(*funcdesc).lprgelemdescParam.offset(self.index as isize)).tdesc },
+            unsafe {
+                &(*(self.func_desc.as_ref())
+                    .lprgelemdescParam
+                    .offset(self.index as isize))
+                .tdesc
+            },
             Some(&mut typedetails),
         );
-        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(typedetails)
     }
     fn ole_param_flag_mask(&self, mask: u16) -> bool {
-        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index) };
-        let funcdesc = if let Ok(funcdesc) = funcdesc {
-            funcdesc
-        } else {
-            return false;
-        };
         let ret = unsafe {
-            &(*(*funcdesc).lprgelemdescParam.offset(self.index as isize))
-                .Anonymous
-                .paramdesc
-                .wParamFlags
-                .0
+            &(*(self.func_desc.as_ref())
+                .lprgelemdescParam
+                .offset(self.index as isize))
+            .Anonymous
+            .paramdesc
+            .wParamFlags
+            .0
         } & mask
             != 0;
-        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         ret
     }
     pub fn input(&self) -> bool {
@@ -107,42 +122,48 @@ impl OleParamData {
     }*/
 }
 
+impl<'a> Drop for OleParamData<'a> {
+    fn drop(&mut self) {
+        unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
+    }
+}
+
 fn oleparam_ole_param_from_index(
     typeinfo: &ITypeInfo,
     method_index: u32,
     param_index: i32,
 ) -> Result<OleParamData> {
-    let funcdesc = unsafe { typeinfo.GetFuncDesc(method_index) }?;
+    let func_desc = unsafe { typeinfo.GetFuncDesc(method_index) }?;
+    let func_desc = NonNull::new(func_desc).unwrap();
 
     let mut len = 0;
-    let mut bstrs = Vec::with_capacity(unsafe { (*funcdesc).cParams } as usize + 1);
+    let cmaxnames = unsafe { func_desc.as_ref() }.cParams + 1;
+    let mut bstrs = Vec::with_capacity(cmaxnames as usize);
     let result = unsafe {
         typeinfo.GetNames(
-            (*funcdesc).memid,
+            func_desc.as_ref().memid,
             bstrs.as_mut_ptr(),
-            (*funcdesc).cParams as u32 + 1,
+            cmaxnames as u32,
             &mut len,
         )
     };
     if let Err(error) = result {
-        unsafe { typeinfo.ReleaseFuncDesc(funcdesc) };
+        unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
         return Err(Error::Custom(format!(
             "ITypeInfo::GetNames call failed: {error}"
         )));
     }
     bstrs.remove(0);
     if param_index < 1 || len <= param_index as u32 {
-        unsafe { typeinfo.ReleaseFuncDesc(funcdesc) };
+        unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
         return Err(Error::Custom(format!("index of param must be in 1..{len}")));
     }
 
-    let param = OleParamData {
-        typeinfo: typeinfo.clone(),
+    Ok(OleParamData {
+        typeinfo,
         method_index,
         index: param_index as u32 - 1,
         name: bstrs[param_index as usize].to_string(),
-    };
-
-    unsafe { typeinfo.ReleaseFuncDesc(funcdesc) };
-    Ok(param)
+        func_desc,
+    })
 }
