@@ -139,14 +139,13 @@ impl OleTypeData {
             let mut rgbstrnames = BSTR::default();
             let res = unsafe {
                 self.typeinfo
-                    .GetNames((*var_desc.as_ref()).memid, &mut rgbstrnames, 1, &mut len)
+                    .GetNames(var_desc.as_ref().memid, &mut rgbstrnames, 1, &mut len)
             };
             if res.is_err() || len == 0 || rgbstrnames.is_empty() {
                 continue;
             }
-            let index = i as u32;
             let name = String::try_from(rgbstrnames)?;
-            variables.push(OleVariableData::make(&self.typeinfo, index, name, var_desc));
+            variables.push(OleVariableData::make(&self.typeinfo, name, var_desc));
         }
         Ok(variables)
     }

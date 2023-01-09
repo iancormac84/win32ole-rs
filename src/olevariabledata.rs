@@ -12,7 +12,6 @@ use crate::{
 
 pub struct OleVariableData<'a> {
     typeinfo: &'a ITypeInfo,
-    index: u32,
     name: String,
     var_desc: NonNull<VARDESC>,
 }
@@ -27,20 +26,17 @@ impl<'a> OleVariableData<'a> {
         let var_desc = NonNull::new(var_desc).unwrap();
         Ok(OleVariableData {
             typeinfo,
-            index,
             name: name.as_ref().into(),
             var_desc,
         })
     }
     pub fn make<S: AsRef<str>>(
         typeinfo: &ITypeInfo,
-        index: u32,
         name: S,
         var_desc: NonNull<VARDESC>,
     ) -> OleVariableData {
         OleVariableData {
             typeinfo,
-            index,
             name: name.as_ref().into(),
             var_desc,
         }
@@ -79,7 +75,7 @@ impl<'a> OleVariableData<'a> {
 
 impl<'a> TypeRef for OleVariableData<'a> {
     fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
+        self.typeinfo
     }
     fn typedesc(&self) -> &TYPEDESC {
         unsafe { &((self.var_desc.as_ref()).elemdescVar.tdesc) }

@@ -105,7 +105,7 @@ impl<'a> OleParamData<'a> {
 
 impl<'a> TypeRef for OleParamData<'a> {
     fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
+        self.typeinfo
     }
     fn typedesc(&self) -> &TYPEDESC {
         unsafe {
