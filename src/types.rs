@@ -223,7 +223,7 @@ impl<'a> Iterator for IterVars<'a> {
             return None;
         }
 
-        let result = Var::new(&self.type_attr, self.index as u32);
+        let result = Var::new(self.type_attr, self.index as u32);
         self.index += 1;
         Some(result)
     }
@@ -323,7 +323,7 @@ impl<'a> Iterator for IterMethods<'a> {
             return None;
         }
 
-        let result = Method::new(self.type_attr.into(), self.index as u32);
+        let result = Method::new(self.type_attr, self.index as u32);
         self.index += 1;
         Some(result)
     }

@@ -84,115 +84,113 @@ pub fn create_com_object<S: AsRef<OsStr>, T: Interface>(s: S) -> Result<T> {
     create_instance(&class_id)
 }
 
-pub(crate) fn ole_typedesc2val(
-    typeinfo: &ITypeInfo,
-    typedesc: &TYPEDESC,
-    mut typedetails: Option<&mut Vec<String>>,
-) -> String {
-    let typestr = match typedesc.vt.0 {
-        2 => "I2".into(),
-        3 => "I4".into(),
-        4 => "R4".into(),
-        5 => "R8".into(),
-        6 => "CY".into(),
-        7 => "DATE".into(),
-        8 => "BSTR".into(),
-        11 => "BOOL".into(),
-        12 => "VARIANT".into(),
-        14 => "DECIMAL".into(),
-        16 => "I1".into(),
-        17 => "UI1".into(),
-        18 => "UI2".into(),
-        19 => "UI4".into(),
-        20 => "I8".into(),
-        21 => "UI8".into(),
-        22 => "INT".into(),
-        23 => "UINT".into(),
-        24 => "VOID".into(),
-        25 => "HRESULT".into(),
-        26 => {
-            let typestr: String = "PTR".into();
-            if let Some(ref mut typedetails) = typedetails {
-                typedetails.push(typestr);
-            }
-            return ole_ptrtype2val(typeinfo, typedesc, typedetails);
-        }
-        27 => {
-            let typestr: String = "SAFEARRAY".into();
-            if let Some(ref mut typedetails) = typedetails {
-                typedetails.push(typestr);
-            }
-            return ole_ptrtype2val(typeinfo, typedesc, typedetails);
-        }
-        28 => "CARRAY".into(),
-        29 => {
-            let typestr: String = "USERDEFINED".into();
-            if let Some(ref mut typedetails) = typedetails {
-                typedetails.push(typestr.clone());
-            }
-            let str = ole_usertype2val(typeinfo, typedesc, typedetails);
-            if let Some(str) = str {
-                return str;
-            }
-            return typestr;
-        }
-        13 => "UNKNOWN".into(),
-        9 => "DISPATCH".into(),
-        10 => "ERROR".into(),
-        31 => "LPWSTR".into(),
-        30 => "LPSTR".into(),
-        36 => "RECORD".into(),
-        _ => {
-            let typestr: String = "Unknown Type ".into();
-            format!("{}{}", typestr, typedesc.vt.0)
-        }
-    };
-    if let Some(typedetails) = typedetails {
-        typedetails.push(typestr.clone());
-    }
-    typestr
+pub trait TypeRef {
+    fn typeinfo(&self) -> &ITypeInfo;
+    fn typedesc(&self) -> &TYPEDESC;
 }
 
-pub(crate) fn ole_ptrtype2val(
-    typeinfo: &ITypeInfo,
-    typedesc: &TYPEDESC,
-    typedetails: Option<&mut Vec<String>>,
-) -> String {
-    let mut type_ = "".into();
+pub trait ValueDescription: TypeRef {
+    fn ole_typedesc2val(&self, mut typedetails: Option<&mut Vec<String>>) -> String {
+        let p = unsafe { self.typedesc().Anonymous.lptdesc };
+        let typestr = match unsafe { (*p).vt.0 } {
+            2 => "I2".into(),
+            3 => "I4".into(),
+            4 => "R4".into(),
+            5 => "R8".into(),
+            6 => "CY".into(),
+            7 => "DATE".into(),
+            8 => "BSTR".into(),
+            11 => "BOOL".into(),
+            12 => "VARIANT".into(),
+            14 => "DECIMAL".into(),
+            16 => "I1".into(),
+            17 => "UI1".into(),
+            18 => "UI2".into(),
+            19 => "UI4".into(),
+            20 => "I8".into(),
+            21 => "UI8".into(),
+            22 => "INT".into(),
+            23 => "UINT".into(),
+            24 => "VOID".into(),
+            25 => "HRESULT".into(),
+            26 => {
+                let typestr: String = "PTR".into();
+                if let Some(ref mut typedetails) = typedetails {
+                    typedetails.push(typestr);
+                }
+                return self.ole_ptrtype2val(typedetails);
+            }
+            27 => {
+                let typestr: String = "SAFEARRAY".into();
+                if let Some(ref mut typedetails) = typedetails {
+                    typedetails.push(typestr);
+                }
+                return self.ole_ptrtype2val(typedetails);
+            }
+            28 => "CARRAY".into(),
+            29 => {
+                let typestr: String = "USERDEFINED".into();
+                if let Some(ref mut typedetails) = typedetails {
+                    typedetails.push(typestr.clone());
+                }
+                let str = self.ole_usertype2val(typedetails);
+                if let Some(str) = str {
+                    return str;
+                }
+                return typestr;
+            }
+            13 => "UNKNOWN".into(),
+            9 => "DISPATCH".into(),
+            10 => "ERROR".into(),
+            31 => "LPWSTR".into(),
+            30 => "LPSTR".into(),
+            36 => "RECORD".into(),
+            _ => {
+                let typestr: String = "Unknown Type ".into();
+                format!("{}{}", typestr, self.typedesc().vt.0)
+            }
+        };
+        if let Some(typedetails) = typedetails {
+            typedetails.push(typestr.clone());
+        }
+        typestr
+    }
 
-    if typedesc.vt == VT_PTR || typedesc.vt == VT_SAFEARRAY {
-        let p = unsafe { typedesc.Anonymous.lptdesc };
-        type_ = ole_typedesc2val(typeinfo, unsafe { &*p }, typedetails);
-    }
-    type_
-}
+    fn ole_ptrtype2val(&self, typedetails: Option<&mut Vec<String>>) -> String {
+        let mut type_ = "".into();
 
-pub(crate) fn ole_usertype2val(
-    typeinfo: &ITypeInfo,
-    typedesc: &TYPEDESC,
-    typedetails: Option<&mut Vec<String>>,
-) -> Option<String> {
-    let result = unsafe { typeinfo.GetRefTypeInfo(typedesc.Anonymous.hreftype) };
-    if result.is_err() {
-        return None;
+        if self.typedesc().vt == VT_PTR || self.typedesc().vt == VT_SAFEARRAY {
+            type_ = self.ole_typedesc2val(typedetails);
+        }
+        type_
     }
-    let reftypeinfo = result.unwrap();
-    let mut bstrname = BSTR::default();
-    let result = ole_docinfo_from_type(
-        &reftypeinfo,
-        Some(&mut bstrname),
-        None,
-        ptr::null_mut(),
-        None,
-    );
-    if result.is_err() {
-        return None;
+
+    fn ole_usertype2val(&self, typedetails: Option<&mut Vec<String>>) -> Option<String> {
+        let result = unsafe {
+            self.typeinfo()
+                .GetRefTypeInfo(self.typedesc().Anonymous.hreftype)
+        };
+        if result.is_err() {
+            return None;
+        }
+        let reftypeinfo = result.unwrap();
+        let mut bstrname = BSTR::default();
+        let result = ole_docinfo_from_type(
+            &reftypeinfo,
+            Some(&mut bstrname),
+            None,
+            ptr::null_mut(),
+            None,
+        );
+        if result.is_err() {
+            return None;
+        }
+        let type_ = bstrname.to_string();
+        if let Some(typedetails) = typedetails {
+            typedetails.push(type_.clone());
+        }
+        Some(type_)
     }
-    let type_ = bstrname.to_string();
-    if let Some(typedetails) = typedetails {
-        typedetails.push(type_.clone());
-    }
-    Some(type_)
 }
 
 pub(crate) fn ole_docinfo_from_type(

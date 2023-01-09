@@ -1,7 +1,10 @@
 use crate::{
     error::{Error, Result},
     oleparamdata::OleParamData,
-    util::{conv::ToWide, ole::ole_typedesc2val},
+    util::{
+        conv::ToWide,
+        ole::{TypeRef, ValueDescription},
+    },
     OleTypeData,
 };
 use std::{
@@ -12,13 +15,15 @@ use windows::{
     core::{BSTR, PCWSTR},
     Win32::System::Com::{
         ITypeInfo, FUNCDESC, IMPLTYPEFLAGS, IMPLTYPEFLAG_FSOURCE, INVOKEKIND, INVOKE_FUNC,
-        INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, VARENUM,
+        INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR,
+        TYPEDESC, VARENUM,
     },
 };
 
 #[derive(Debug)]
 pub struct OleMethodData {
     owner_typeinfo: Option<ITypeInfo>,
+    owner_type_attr: Option<NonNull<TYPEATTR>>,
     typeinfo: ITypeInfo,
     name: String,
     index: u32,
@@ -88,67 +93,51 @@ impl OleMethodData {
         self.docinfo_from_type(None, None, &mut helpcontext, None)?;
         Ok(helpcontext)
     }
-    pub fn dispid(&self) -> Result<i32> {
-        Ok(unsafe { self.func_desc.as_ref().memid })
+    pub fn dispid(&self) -> i32 {
+        unsafe { self.func_desc.as_ref().memid }
     }
-    pub fn return_type(&self) -> Result<String> {
-        Ok(ole_typedesc2val(
-            &self.typeinfo,
-            &(unsafe { self.func_desc.as_ref().elemdescFunc.tdesc }),
-            None,
-        ))
+    pub fn return_type(&self) -> String {
+        self.ole_typedesc2val(None)
     }
-    pub fn return_vtype(&self) -> Result<VARENUM> {
-        Ok(unsafe { self.func_desc.as_ref().elemdescFunc.tdesc.vt })
+    pub fn return_vtype(&self) -> VARENUM {
+        unsafe { self.func_desc.as_ref().elemdescFunc.tdesc.vt }
     }
-    pub fn return_type_detail(&self) -> Result<Vec<String>> {
+    pub fn return_type_detail(&self) -> Vec<String> {
         let mut type_details = vec![];
-        ole_typedesc2val(
-            &self.typeinfo,
-            &(unsafe { self.func_desc.as_ref().elemdescFunc.tdesc }),
-            Some(&mut type_details),
-        );
-        Ok(type_details)
+        self.ole_typedesc2val(Some(&mut type_details));
+        type_details
     }
-    pub fn invkind(&self) -> Result<INVOKEKIND> {
-        Ok(unsafe { self.func_desc.as_ref().invkind })
+    pub fn invkind(&self) -> INVOKEKIND {
+        unsafe { self.func_desc.as_ref().invkind }
     }
-    pub fn invoke_kind(&self) -> Result<String> {
-        let invkind = self.invkind()?;
+    pub fn invoke_kind(&self) -> &str {
+        let invkind = self.invkind();
         if invkind.0 & INVOKE_PROPERTYGET.0 != 0 && invkind.0 & INVOKE_PROPERTYPUT.0 != 0 {
-            Ok("PROPERTY".into())
+            "PROPERTY"
         } else if invkind.0 & INVOKE_PROPERTYGET.0 != 0 {
-            Ok("PROPERTYGET".into())
+            "PROPERTYGET"
         } else if invkind.0 & INVOKE_PROPERTYPUT.0 != 0 {
-            Ok("PROPERTYPUT".into())
+            "PROPERTYPUT"
         } else if invkind.0 & INVOKE_PROPERTYPUTREF.0 != 0 {
-            Ok("PROPERTYPUTREF".into())
+            "PROPERTYPUTREF"
         } else if invkind.0 & INVOKE_FUNC.0 != 0 {
-            Ok("FUNC".into())
+            "FUNC"
         } else {
-            Ok("UNKNOWN".into())
+            "UNKNOWN"
         }
     }
     pub fn is_event(&self) -> bool {
         if self.owner_typeinfo.is_none() {
             return false;
         }
-        let result = unsafe { self.owner_typeinfo.as_ref().unwrap().GetTypeAttr() };
-        if result.is_err() {
+        if self.owner_type_attr.is_none() {
             return false;
         }
-        let type_attr = result.unwrap();
-        if unsafe { (*type_attr).typekind } != TKIND_COCLASS {
-            unsafe {
-                self.owner_typeinfo
-                    .as_ref()
-                    .unwrap()
-                    .ReleaseTypeAttr(type_attr)
-            };
+        if unsafe { self.owner_type_attr.unwrap().as_ref().typekind } != TKIND_COCLASS {
             return false;
         }
         let mut event = false;
-        for i in 0..unsafe { (*type_attr).cImplTypes } {
+        for i in 0..unsafe { self.owner_type_attr.unwrap().as_ref().cImplTypes } {
             let result = unsafe {
                 self.owner_typeinfo
                     .as_ref()
@@ -201,16 +190,7 @@ impl OleMethodData {
                 }
             }
         }
-        unsafe {
-            self.owner_typeinfo
-                .as_ref()
-                .unwrap()
-                .ReleaseTypeAttr(type_attr)
-        };
         event
-    }
-    pub fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
     }
     pub fn name(&self) -> &str {
         &self.name
@@ -254,6 +234,18 @@ impl OleMethodData {
         Ok(unsafe { self.func_desc.as_ref().oVft })
     }
 }
+
+impl TypeRef for OleMethodData {
+    fn typeinfo(&self) -> &ITypeInfo {
+        &self.typeinfo
+    }
+    fn typedesc(&self) -> &TYPEDESC {
+        let func_desc_ref = unsafe { self.func_desc.as_ref() };
+        &func_desc_ref.elemdescFunc.tdesc
+    }
+}
+
+impl ValueDescription for OleMethodData {}
 
 impl Drop for OleMethodData {
     fn drop(&mut self) {
@@ -322,8 +314,16 @@ fn ole_method_sub<S: AsRef<OsStr>>(
         if unsafe { fname_pcwstr.as_wide() } == bstrname.as_wide() {
             let func_desc = NonNull::new(funcdesc);
             if let Some(func_desc) = func_desc {
+                let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
+                    let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
+                    let type_attr = NonNull::new(type_attr).unwrap();
+                    Some(type_attr)
+                } else {
+                    None
+                };
                 method = Some(OleMethodData {
                     owner_typeinfo: owner_typeinfo.cloned(),
+                    owner_type_attr,
                     typeinfo: typeinfo.clone(),
                     name: bstrname.to_string(),
                     index: i as u32,
@@ -366,8 +366,16 @@ fn ole_methods_sub(
                 if unsafe { (*funcdesc).invkind.0 } & mask != 0 {
                     let func_desc = NonNull::new(funcdesc);
                     if let Some(func_desc) = func_desc {
+                        let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
+                            let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
+                            let type_attr = NonNull::new(type_attr).unwrap();
+                            Some(type_attr)
+                        } else {
+                            None
+                        };
                         methods.push(OleMethodData {
                             owner_typeinfo: owner_typeinfo.cloned(),
+                            owner_type_attr,
                             typeinfo: typeinfo.clone(),
                             name: bstrname.to_string(),
                             index: i as u32,

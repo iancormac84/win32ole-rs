@@ -6,7 +6,7 @@ use crate::{
     types::{OleClassNames, TypeInfos},
     util::{
         conv::ToWide,
-        ole::{ole_docinfo_from_type, ole_initialized, ole_typedesc2val},
+        ole::{ole_docinfo_from_type, ole_initialized, TypeRef, ValueDescription},
     },
     OleMethodData,
 };
@@ -21,7 +21,7 @@ use windows::{
         Com::{
             IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
             IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEKIND,
+            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEDESC, TYPEKIND,
         },
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
@@ -133,20 +133,20 @@ impl OleTypeData {
     pub fn variables(&self) -> Result<Vec<OleVariableData>> {
         let mut variables = vec![];
         for i in 0..unsafe { self.type_attr.as_ref().cVars } {
-            let var_desc_ptr = unsafe { self.typeinfo.GetVarDesc(i as u32)? };
+            let var_desc = unsafe { self.typeinfo.GetVarDesc(i as u32)? };
+            let var_desc = NonNull::new(var_desc).unwrap();
             let mut len = 0;
             let mut rgbstrnames = BSTR::default();
             let res = unsafe {
                 self.typeinfo
-                    .GetNames((*var_desc_ptr).memid, &mut rgbstrnames, 1, &mut len)
+                    .GetNames((*var_desc.as_ref()).memid, &mut rgbstrnames, 1, &mut len)
             };
             if res.is_err() || len == 0 || rgbstrnames.is_empty() {
                 continue;
             }
             let index = i as u32;
             let name = String::try_from(rgbstrnames)?;
-            variables.push(OleVariableData::new(&self.typeinfo, index, name));
-            unsafe { self.typeinfo.ReleaseVarDesc(var_desc_ptr) };
+            variables.push(OleVariableData::make(&self.typeinfo, index, name, var_desc));
         }
         Ok(variables)
     }
@@ -154,11 +154,7 @@ impl OleTypeData {
         if unsafe { self.type_attr.as_ref().typekind } != TKIND_ALIAS {
             return None;
         }
-        Some(ole_typedesc2val(
-            &self.typeinfo,
-            &(unsafe { self.type_attr.as_ref().tdescAlias }),
-            None,
-        ))
+        Some(self.ole_typedesc2val(None))
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
         ole_methods_from_typeinfo(
@@ -166,25 +162,62 @@ impl OleTypeData {
             INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
         )
     }
+    fn ole_type_impl_ole_types(&self, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
+        let mut types = vec![];
+
+        for i in 0..unsafe { self.type_attr.as_ref().cImplTypes } {
+            let flags = unsafe { self.typeinfo.GetImplTypeFlags(i as u32) };
+            let Ok(flags) = flags else {
+                continue;
+            };
+
+            let href = unsafe { self.typeinfo.GetRefTypeOfImplType(i as u32) };
+            let Ok(href) = href else {
+                continue;
+            };
+            let ref_type_info = unsafe { self.typeinfo.GetRefTypeInfo(href) };
+            let Ok(ref_type_info) = ref_type_info else {
+                continue;
+            };
+
+            if (flags & implflags) == implflags {
+                let type_ = OleTypeData::try_from(&ref_type_info);
+                if let Ok(type_) = type_ {
+                    types.push(type_);
+                }
+            }
+        }
+
+        Ok(types)
+    }
     pub fn implemented_ole_types(&self) -> Result<Vec<OleTypeData>> {
-        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAGS(0))
+        self.ole_type_impl_ole_types(IMPLTYPEFLAGS(0))
     }
     pub fn source_ole_types(&self) -> Result<Vec<OleTypeData>> {
-        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FSOURCE)
+        self.ole_type_impl_ole_types(IMPLTYPEFLAG_FSOURCE)
     }
     pub fn default_event_sources(&self) -> Result<Vec<OleTypeData>> {
-        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FSOURCE | IMPLTYPEFLAG_FDEFAULT)
+        self.ole_type_impl_ole_types(IMPLTYPEFLAG_FSOURCE | IMPLTYPEFLAG_FDEFAULT)
     }
     pub fn default_ole_types(&self) -> Result<Vec<OleTypeData>> {
-        ole_type_impl_ole_types(&self.typeinfo, IMPLTYPEFLAG_FDEFAULT)
-    }
-    pub fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
+        self.ole_type_impl_ole_types(IMPLTYPEFLAG_FDEFAULT)
     }
     pub fn name(&self) -> &str {
         &self.name
     }
 }
+
+impl TypeRef for OleTypeData {
+    fn typeinfo(&self) -> &ITypeInfo {
+        &self.typeinfo
+    }
+    fn typedesc(&self) -> &TYPEDESC {
+        let type_attr_ref = unsafe { self.type_attr.as_ref() };
+        &type_attr_ref.tdescAlias
+    }
+}
+
+impl ValueDescription for OleTypeData {}
 
 impl TryFrom<&ITypeInfo> for OleTypeData {
     type Error = Error;
@@ -250,37 +283,4 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(
         }
     }
     Ok(None)
-}
-
-fn ole_type_impl_ole_types(
-    typeinfo: &ITypeInfo,
-    implflags: IMPLTYPEFLAGS,
-) -> Result<Vec<OleTypeData>> {
-    let mut types = vec![];
-    let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
-
-    for i in 0..unsafe { (*type_attr).cImplTypes } {
-        let flags = unsafe { typeinfo.GetImplTypeFlags(i as u32) };
-        let Ok(flags) = flags else {
-            continue;
-        };
-
-        let href = unsafe { typeinfo.GetRefTypeOfImplType(i as u32) };
-        let Ok(href) = href else {
-            continue;
-        };
-        let ref_type_info = unsafe { typeinfo.GetRefTypeInfo(href) };
-        let Ok(ref_type_info) = ref_type_info else {
-            continue;
-        };
-
-        if (flags & implflags) == implflags {
-            let type_ = OleTypeData::try_from(&ref_type_info);
-            if let Ok(type_) = type_ {
-                types.push(type_);
-            }
-        }
-    }
-    unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
-    Ok(types)
 }

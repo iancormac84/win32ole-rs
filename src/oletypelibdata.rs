@@ -204,20 +204,6 @@ impl OleTypeLibData {
             tlib_attr,
         })
     }
-    pub fn from_itypeinfo(typeinfo: &ITypeInfo) -> Result<OleTypeLibData> {
-        let mut typelib = None;
-        let mut index = 0;
-        unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) }?;
-        let typelib = typelib.unwrap();
-        let name = library_name_from_typelib(&typelib)?;
-        let tlib_attr = unsafe { typelib.GetLibAttr() }?;
-        let tlib_attr = NonNull::new(tlib_attr).unwrap();
-        Ok(OleTypeLibData {
-            typelib,
-            name,
-            tlib_attr,
-        })
-    }
     pub fn guid(&self) -> GUID {
         unsafe { self.tlib_attr.as_ref().guid }
     }
@@ -268,6 +254,25 @@ impl OleTypeLibData {
     }
     pub fn ole_types(&self) -> Vec<Result<OleTypeData>> {
         ole_types_from_typelib(&self.typelib)
+    }
+}
+
+impl TryFrom<&ITypeInfo> for OleTypeLibData {
+    type Error = Error;
+
+    fn try_from(typeinfo: &ITypeInfo) -> Result<OleTypeLibData> {
+        let mut typelib = None;
+        let mut index = 0;
+        unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) }?;
+        let typelib = typelib.unwrap();
+        let name = library_name_from_typelib(&typelib)?;
+        let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+        let tlib_attr = NonNull::new(tlib_attr).unwrap();
+        Ok(OleTypeLibData {
+            typelib,
+            name,
+            tlib_attr,
+        })
     }
 }
 

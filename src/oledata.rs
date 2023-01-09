@@ -100,7 +100,7 @@ impl OleData {
         let Ok(typeinfo) = typeinfo else {
             return Err(OleError::interface(typeinfo.unwrap_err(), "failed to GetTypeInfo").into());            
         };
-        OleTypeLibData::from_itypeinfo(&typeinfo)
+        OleTypeLibData::try_from(&typeinfo)
     }
     pub fn ole_methods(&self, mask: i32) -> Result<Vec<OleMethodData>> {
         let mut methods = vec![];
