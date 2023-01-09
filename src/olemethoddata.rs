@@ -198,9 +198,10 @@ impl OleMethodData {
     pub fn index(&self) -> u32 {
         self.index
     }
-    pub fn params(&self) -> Result<Vec<Result<OleParamData>>> {
+    pub fn params(&self) -> Vec<Result<OleParamData>> {
         let mut len = 0;
-        let cmaxnames = unsafe { self.func_desc.as_ref().cParams } + 1;
+        let cparams = unsafe { self.func_desc.as_ref().cParams };
+        let cmaxnames = cparams + 1;
         let mut rgbstrnames = vec![BSTR::default(); cmaxnames as usize];
         let result = unsafe {
             self.typeinfo.GetNames(
@@ -210,14 +211,12 @@ impl OleMethodData {
                 &mut len,
             )
         };
-        if let Err(error) = result {
-            return Err(Error::Custom(format!(
-                "ITypeInfo::GetNames call failed: {error}"
-            )));
+        if result.is_err() {
+            return vec![];
         }
         let mut params = vec![];
 
-        if unsafe { self.func_desc.as_ref().cParams } > 0 {
+        if cparams > 0 {
             for i in 1..len {
                 let param = OleParamData::make(
                     self,
@@ -228,7 +227,7 @@ impl OleMethodData {
                 params.push(param);
             }
         }
-        Ok(params)
+        params
     }
     pub fn offset_vtbl(&self) -> Result<i16> {
         Ok(unsafe { self.func_desc.as_ref().oVft })

@@ -144,6 +144,7 @@ fn oleparam_ole_param_from_index(
             &mut len,
         )
     };
+    println!("Inside oleparam_ole_param_from_index call");
     if let Err(error) = result {
         unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
         return Err(Error::Custom(format!(
