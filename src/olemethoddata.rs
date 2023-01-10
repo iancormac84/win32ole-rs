@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, Result},
+    error::Result,
     oleparamdata::OleParamData,
     util::{
         conv::ToWide,
@@ -234,6 +234,12 @@ impl OleMethodData {
     }
 }
 
+impl Drop for OleMethodData {
+    fn drop(&mut self) {
+        unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
+    }
+}
+
 impl TypeRef for OleMethodData {
     fn typeinfo(&self) -> &ITypeInfo {
         &self.typeinfo
@@ -245,12 +251,6 @@ impl TypeRef for OleMethodData {
 }
 
 impl ValueDescription for OleMethodData {}
-
-impl Drop for OleMethodData {
-    fn drop(&mut self) {
-        unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
-    }
-}
 
 pub(crate) fn ole_methods_from_typeinfo(
     typeinfo: &ITypeInfo,

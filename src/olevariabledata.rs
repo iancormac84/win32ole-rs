@@ -73,6 +73,12 @@ impl<'a> OleVariableData<'a> {
     }
 }
 
+impl<'a> Drop for OleVariableData<'a> {
+    fn drop(&mut self) {
+        unsafe { self.typeinfo.ReleaseVarDesc(self.var_desc.as_ptr()) };
+    }
+}
+
 impl<'a> TypeRef for OleVariableData<'a> {
     fn typeinfo(&self) -> &ITypeInfo {
         self.typeinfo

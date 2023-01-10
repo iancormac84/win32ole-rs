@@ -590,7 +590,7 @@ fn ole_types_from_typelib(typelib: &ITypeLib) -> Vec<Result<OleTypeData>> {
         let Ok(typeinfo) = typeinfo else {
             continue;
         };
-        let oletype = OleTypeData::make(None, typeinfo, ole_class_name);
+        let oletype = OleTypeData::make(typeinfo, ole_class_name);
         classes.push(oletype);
     }
     classes

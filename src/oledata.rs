@@ -3,17 +3,18 @@ use std::{ffi::OsStr, path::PathBuf, ptr};
 use windows::{
     core::{Interface, Vtable, BSTR, GUID, PCWSTR},
     Win32::{
-        Data::HtmlHelp::HTML_HELP_COMMAND,
-        Foundation::HWND,
         Globalization::GetUserDefaultLCID,
-        System::Com::{IDispatch, IMoniker, ITypeInfo, ITypeLib, VARIANT},
-        UI::WindowsAndMessaging::GetDesktopWindow,
+        System::Com::{
+            IDispatch, ITypeInfo, ITypeLib, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
+            INVOKE_PROPERTYPUTREF,
+        },
     },
 };
 
 use crate::{
     error::{Error, OleError, Result},
     olemethoddata::{ole_methods_from_typeinfo, OleMethodData},
+    types::OleClassNames,
     util::{
         conv::ToWide,
         ole::{create_com_object, get_class_id},
@@ -88,32 +89,44 @@ impl OleData {
                 .is_ok()
         }
     }
-    pub fn ole_type(&self) -> Result<OleTypeData> {
+    fn get_type_info(&self) -> Result<ITypeInfo> {
         let typeinfo = unsafe { self.dispatch.GetTypeInfo(0, GetUserDefaultLCID()) };
-        let Ok(typeinfo) = typeinfo else {
-            return Err(OleError::interface(typeinfo.unwrap_err(), "failed to GetTypeInfo").into());            
-        };
+        match typeinfo {
+            Ok(typeinfo) => Ok(typeinfo),
+            Err(error) => Err(OleError::interface(error, "failed to GetTypeInfo").into()),
+        }
+    }
+    pub fn ole_type(&self) -> Result<OleTypeData> {
+        let typeinfo = self.get_type_info()?;
         OleTypeData::try_from(&typeinfo)
     }
     pub fn ole_typelib(&self) -> Result<OleTypeLibData> {
-        let typeinfo = unsafe { self.dispatch.GetTypeInfo(0, GetUserDefaultLCID()) };
-        let Ok(typeinfo) = typeinfo else {
-            return Err(OleError::interface(typeinfo.unwrap_err(), "failed to GetTypeInfo").into());            
-        };
+        let typeinfo = self.get_type_info()?;
         OleTypeLibData::try_from(&typeinfo)
     }
-    pub fn ole_methods(&self, mask: i32) -> Result<Vec<OleMethodData>> {
+    fn raw_ole_methods(&self, mask: i32) -> Result<Vec<OleMethodData>> {
         let mut methods = vec![];
 
         let typeinfo = self.typeinfo_from_ole()?;
         methods.extend(ole_methods_from_typeinfo(&typeinfo, mask)?);
         Ok(methods)
     }
+    pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
+        self.raw_ole_methods(
+            INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
+        )
+    }
+    pub fn ole_get_methods(&self) -> Result<Vec<OleMethodData>> {
+        self.raw_ole_methods(INVOKE_PROPERTYGET.0)
+    }
+    pub fn ole_put_methods(&self) -> Result<Vec<OleMethodData>> {
+        self.raw_ole_methods(INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0)
+    }
+    pub fn ole_func_methods(&self) -> Result<Vec<OleMethodData>> {
+        self.raw_ole_methods(INVOKE_FUNC.0)
+    }
     fn typeinfo_from_ole(&self) -> Result<ITypeInfo> {
-        let typeinfo = unsafe { self.dispatch.GetTypeInfo(0, GetUserDefaultLCID()) };
-        let Ok(typeinfo) = typeinfo else {
-            return Err(OleError::interface(typeinfo.unwrap_err(), "failed to GetTypeInfo").into());
-        };
+        let typeinfo = self.get_type_info()?;
 
         let mut bstrname = BSTR::default();
         unsafe { typeinfo.GetDocumentation(-1, Some(&mut bstrname), None, ptr::null_mut(), None)? };
@@ -124,20 +137,19 @@ impl OleData {
         if let Err(error) = result {
             return Err(OleError::interface(error, "failed to GetContainingTypeLib").into());
         };
-        let typelib = typelib.unwrap();
-        let count = unsafe { typelib.GetTypeInfoCount() };
 
+        let typelib = typelib.unwrap();
+
+        let ole_class_names = OleClassNames::from(&typelib);
         let mut ret_type_info = None;
-        for i in 0..count {
-            let mut bstrname = BSTR::default();
-            let result = unsafe {
-                typelib.GetDocumentation(i as i32, Some(&mut bstrname), None, ptr::null_mut(), None)
-            };
-            if result.is_ok() && bstrname == type_ {
-                let result = unsafe { typelib.GetTypeInfo(i) };
-                if let Ok(ret_type) = result {
-                    ret_type_info = Some(ret_type);
-                    break;
+        for (idx, class_name) in ole_class_names.enumerate() {
+            if let Ok(class_name) = class_name {
+                if class_name == type_ {
+                    let result = unsafe { typelib.GetTypeInfo(idx as u32) };
+                    if let Ok(ret_type) = result {
+                        ret_type_info = Some(ret_type);
+                        break;
+                    }
                 }
             }
         }

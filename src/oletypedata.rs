@@ -19,7 +19,7 @@ use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
-            IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
+            ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
             IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
             INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEDESC, TYPEKIND,
         },
@@ -27,9 +27,7 @@ use windows::{
     },
 };
 
-//TODO: Remove dispatch member variable possibly by making initialized IDispatch'es global
 pub struct OleTypeData {
-    dispatch: Option<IDispatch>,
     typeinfo: ITypeInfo,
     name: String,
     type_attr: NonNull<TYPEATTR>,
@@ -52,16 +50,11 @@ impl OleTypeData {
             ))),
         }
     }
-    pub fn make<S: AsRef<str>>(
-        dispatch: Option<IDispatch>,
-        typeinfo: ITypeInfo,
-        name: S,
-    ) -> Result<OleTypeData> {
+    pub fn make<S: AsRef<str>>(typeinfo: ITypeInfo, name: S) -> Result<OleTypeData> {
         let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
         let type_attr = NonNull::new(type_attr).unwrap();
 
         Ok(OleTypeData {
-            dispatch,
             typeinfo,
             name: name.as_ref().to_string(),
             type_attr,
@@ -206,6 +199,12 @@ impl OleTypeData {
     }
 }
 
+impl Drop for OleTypeData {
+    fn drop(&mut self) {
+        unsafe { self.typeinfo.ReleaseTypeAttr(self.type_attr.as_ptr()) };
+    }
+}
+
 impl TypeRef for OleTypeData {
     fn typeinfo(&self) -> &ITypeInfo {
         &self.typeinfo
@@ -246,7 +245,6 @@ impl TryFrom<&ITypeInfo> for OleTypeData {
         let type_attr = NonNull::new(type_attr).unwrap();
 
         Ok(OleTypeData {
-            dispatch: None,
             typeinfo: typeinfo.clone(),
             name: bstr.to_string(),
             type_attr,
@@ -273,7 +271,6 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(
             let type_attr = NonNull::new(type_attr).unwrap();
 
             return Ok(Some(OleTypeData {
-                dispatch: None,
                 typeinfo,
                 name: ole_class_name,
                 type_attr,

@@ -103,6 +103,12 @@ impl<'a> OleParamData<'a> {
     }*/
 }
 
+impl<'a> Drop for OleParamData<'a> {
+    fn drop(&mut self) {
+        unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
+    }
+}
+
 impl<'a> TypeRef for OleParamData<'a> {
     fn typeinfo(&self) -> &ITypeInfo {
         self.typeinfo
@@ -118,12 +124,6 @@ impl<'a> TypeRef for OleParamData<'a> {
 }
 
 impl<'a> ValueDescription for OleParamData<'a> {}
-
-impl<'a> Drop for OleParamData<'a> {
-    fn drop(&mut self) {
-        unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
-    }
-}
 
 fn oleparam_ole_param_from_index(
     typeinfo: &ITypeInfo,
