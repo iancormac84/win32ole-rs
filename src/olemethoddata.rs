@@ -1,5 +1,5 @@
 use crate::{
-    error::{Error, Result},
+    error::Result,
     oleparamdata::OleParamData,
     util::{conv::ToWide, ole::ole_typedesc2val},
     OleTypeData,
@@ -218,7 +218,7 @@ impl OleMethodData {
     pub fn index(&self) -> u32 {
         self.index
     }
-    pub fn params(&self) -> Result<Vec<Result<OleParamData>>> {
+    pub fn params(&self) -> Vec<Result<OleParamData>> {
         let mut len = 0;
         let cmaxnames = unsafe { self.func_desc.as_ref().cParams } + 1;
         let mut rgbstrnames = vec![BSTR::default(); cmaxnames as usize];
@@ -230,10 +230,8 @@ impl OleMethodData {
                 &mut len,
             )
         };
-        if let Err(error) = result {
-            return Err(Error::Custom(format!(
-                "ITypeInfo::GetNames call failed: {error}"
-            )));
+        if result.is_err() {
+            return vec![];
         }
         let mut params = vec![];
 
@@ -248,7 +246,7 @@ impl OleMethodData {
                 params.push(param);
             }
         }
-        Ok(params)
+        params
     }
     pub fn offset_vtbl(&self) -> Result<i16> {
         Ok(unsafe { self.func_desc.as_ref().oVft })

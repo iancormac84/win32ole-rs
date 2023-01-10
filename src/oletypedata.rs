@@ -236,7 +236,6 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(
         let Ok(ole_class_name) = ole_class_name else {
             continue;
         };
-        println!("ole_class_name is {ole_class_name}");
         if ole_class_name == oleclass.as_ref().to_str().unwrap() {
             let type_attr = unsafe { typeinfo.GetTypeAttr()? };
             let type_attr = NonNull::new(type_attr).unwrap();
