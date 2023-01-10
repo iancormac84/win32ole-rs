@@ -1,6 +1,7 @@
 use crate::{
     error::Result,
     oleparamdata::OleParamData,
+    types::ReferencedTypes,
     util::{
         conv::ToWide,
         ole::{TypeRef, ValueDescription},
@@ -14,9 +15,8 @@ use std::{
 use windows::{
     core::{BSTR, PCWSTR},
     Win32::System::Com::{
-        ITypeInfo, FUNCDESC, IMPLTYPEFLAGS, IMPLTYPEFLAG_FSOURCE, INVOKEKIND, INVOKE_FUNC,
-        INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR,
-        TYPEDESC, VARENUM,
+        ITypeInfo, FUNCDESC, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
+        INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR, TYPEDESC, VARENUM,
     },
 };
 
@@ -137,56 +137,22 @@ impl OleMethodData {
             return false;
         }
         let mut event = false;
-        for i in 0..unsafe { self.owner_type_attr.unwrap().as_ref().cImplTypes } {
-            let result = unsafe {
-                self.owner_typeinfo
-                    .as_ref()
-                    .unwrap()
-                    .GetImplTypeFlags(i as u32)
-            };
-            if result.is_err() {
-                continue;
-            }
-
-            let flags = result.unwrap();
-
-            if flags & IMPLTYPEFLAG_FSOURCE != IMPLTYPEFLAGS(0) {
-                let result = unsafe {
-                    self.owner_typeinfo
-                        .as_ref()
-                        .unwrap()
-                        .GetRefTypeOfImplType(i as u32)
-                };
-                let Ok(href) = result else {
-                    continue;
-                };
-                let result = unsafe { self.owner_typeinfo.as_ref().unwrap().GetRefTypeInfo(href) };
-                let Ok(ref_type_info) = result else {
-                    continue;
-                };
-                let result = unsafe { ref_type_info.GetFuncDesc(self.index) };
-                let Ok(funcdesc) = result else {
-                    continue;
-                };
-                let mut bstrname = BSTR::default();
-                let result = unsafe {
-                    ref_type_info.GetDocumentation(
-                        (*funcdesc).memid,
-                        Some(&mut bstrname),
-                        None,
-                        ptr::null_mut(),
-                        None,
-                    )
-                };
-                if result.is_err() {
-                    unsafe { ref_type_info.ReleaseFuncDesc(funcdesc) };
-                    continue;
-                }
-
-                unsafe { ref_type_info.ReleaseFuncDesc(funcdesc) };
-                if self.name == bstrname {
-                    event = true;
-                    break;
+        let referenced_types = ReferencedTypes::new(
+            self.owner_typeinfo.as_ref().unwrap(),
+            unsafe { self.owner_type_attr.unwrap().as_ref() },
+            self.index,
+        );
+        for referenced_type in referenced_types {
+            if let Ok(referenced_type) = referenced_type {
+                if referenced_type.is_source() {
+                    let name = referenced_type.name();
+                    let Ok(name) = name else {
+                        continue;
+                    };
+                    if name == self.name {
+                        event = true;
+                        break;
+                    }
                 }
             }
         }
@@ -259,17 +225,10 @@ pub(crate) fn ole_methods_from_typeinfo(
     let type_attr = unsafe { typeinfo.GetTypeAttr()? };
     let mut methods = vec![];
     ole_methods_sub(None, typeinfo, &mut methods, mask)?;
-    for i in 0..unsafe { (*type_attr).cImplTypes } {
-        let reftype = unsafe { typeinfo.GetRefTypeOfImplType(i as u32) };
-        if let Ok(reftype) = reftype {
-            let reftype_info = unsafe { typeinfo.GetRefTypeInfo(reftype) };
-            if let Ok(reftype_info) = reftype_info {
-                ole_methods_sub(Some(typeinfo), &reftype_info, &mut methods, mask)?;
-            } else {
-                continue;
-            }
-        } else {
-            continue;
+    let referenced_types = ReferencedTypes::new(typeinfo, unsafe {&*type_attr}, 0);
+    for referenced_type in referenced_types {
+        if let Ok(referenced_type) = referenced_type {
+            ole_methods_sub(Some(typeinfo), referenced_type.typeinfo(), &mut methods, mask)?;            
         }
     }
     unsafe { typeinfo.ReleaseTypeAttr(type_attr) };

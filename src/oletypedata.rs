@@ -3,7 +3,7 @@ use crate::{
     olemethoddata::ole_methods_from_typeinfo,
     oletypelibdata::typelib_file,
     olevariabledata::OleVariableData,
-    types::{OleClassNames, TypeInfos},
+    types::{OleClassNames, ReferencedTypes, TypeInfos},
     util::{
         conv::ToWide,
         ole::{ole_docinfo_from_type, ole_initialized, TypeRef, ValueDescription},
@@ -157,25 +157,15 @@ impl OleTypeData {
     fn ole_type_impl_ole_types(&self, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
         let mut types = vec![];
 
-        for i in 0..unsafe { self.type_attr.as_ref().cImplTypes } {
-            let flags = unsafe { self.typeinfo.GetImplTypeFlags(i as u32) };
-            let Ok(flags) = flags else {
-                continue;
-            };
-
-            let href = unsafe { self.typeinfo.GetRefTypeOfImplType(i as u32) };
-            let Ok(href) = href else {
-                continue;
-            };
-            let ref_type_info = unsafe { self.typeinfo.GetRefTypeInfo(href) };
-            let Ok(ref_type_info) = ref_type_info else {
-                continue;
-            };
-
-            if (flags & implflags) == implflags {
-                let type_ = OleTypeData::try_from(&ref_type_info);
-                if let Ok(type_) = type_ {
-                    types.push(type_);
+        let referenced_types =
+            ReferencedTypes::new(&self.typeinfo, unsafe { self.type_attr.as_ref() }, 0);
+        for referenced_type in referenced_types {
+            if let Ok(referenced_type) = referenced_type {
+                if referenced_type.matches(implflags) {
+                    let type_ = OleTypeData::try_from(referenced_type.typeinfo());
+                    if let Ok(type_) = type_ {
+                        types.push(type_);
+                    }
                 }
             }
         }
