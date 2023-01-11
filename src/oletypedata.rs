@@ -19,7 +19,7 @@ use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
-            IDispatch, ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
+            ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
             IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
             INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEKIND,
         },
@@ -29,7 +29,6 @@ use windows::{
 
 //TODO: Remove dispatch member variable possibly by making initialized IDispatch'es global
 pub struct OleTypeData {
-    dispatch: Option<IDispatch>,
     typeinfo: ITypeInfo,
     name: String,
     type_attr: NonNull<TYPEATTR>,
@@ -53,7 +52,6 @@ impl OleTypeData {
         }
     }
     pub fn make<S: AsRef<str>>(
-        dispatch: Option<IDispatch>,
         typeinfo: ITypeInfo,
         name: S,
     ) -> Result<OleTypeData> {
@@ -61,7 +59,6 @@ impl OleTypeData {
         let type_attr = NonNull::new(type_attr).unwrap();
 
         Ok(OleTypeData {
-            dispatch,
             typeinfo,
             name: name.as_ref().to_string(),
             type_attr,
@@ -214,7 +211,6 @@ impl TryFrom<&ITypeInfo> for OleTypeData {
         let type_attr = NonNull::new(type_attr).unwrap();
 
         Ok(OleTypeData {
-            dispatch: None,
             typeinfo: typeinfo.clone(),
             name: bstr.to_string(),
             type_attr,
@@ -241,7 +237,6 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(
             let type_attr = NonNull::new(type_attr).unwrap();
 
             return Ok(Some(OleTypeData {
-                dispatch: None,
                 typeinfo,
                 name: ole_class_name,
                 type_attr,
