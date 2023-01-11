@@ -150,7 +150,7 @@ impl OleTypeData {
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
         ole_methods_from_typeinfo(
-            &self.typeinfo,
+            self.typeinfo.clone(),
             INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
         )
     }
@@ -191,6 +191,7 @@ impl OleTypeData {
 
 impl Drop for OleTypeData {
     fn drop(&mut self) {
+        println!("Inside Drop for OleTypeData");
         unsafe { self.typeinfo.ReleaseTypeAttr(self.type_attr.as_ptr()) };
     }
 }

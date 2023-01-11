@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, path::PathBuf, ptr};
+use std::{ffi::OsStr, ptr};
 
 use windows::{
     core::{Interface, Vtable, BSTR, GUID, PCWSTR},
@@ -108,7 +108,7 @@ impl OleData {
         let mut methods = vec![];
 
         let typeinfo = self.typeinfo_from_ole()?;
-        methods.extend(ole_methods_from_typeinfo(&typeinfo, mask)?);
+        methods.extend(ole_methods_from_typeinfo(typeinfo, mask)?);
         Ok(methods)
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
@@ -173,7 +173,7 @@ impl OleData {
         let Ok(typeinfo) = typeinfo else {
             return Err(Error::Custom(format!("failed to get ITypeInfo: {}", typeinfo.err().unwrap())));
         };
-        let obj = OleMethodData::from_typeinfo(&typeinfo, &cmdname)?;
+        let obj = OleMethodData::from_typeinfo(typeinfo, &cmdname)?;
 
         if let Some(obj) = obj {
             Ok(obj)
@@ -186,31 +186,31 @@ impl OleData {
     }
 }
 
-pub enum HelpTarget {
+/*pub enum HelpTarget<'a> {
     OleType(OleTypeData),
-    OleMethod(OleMethodData),
+    OleMethod(OleMethodData<'a>),
     HelpFile(PathBuf),
 }
 
-impl From<OleTypeData> for HelpTarget {
+impl<'a> From<OleTypeData> for HelpTarget<'a> {
     fn from(value: OleTypeData) -> Self {
         HelpTarget::OleType(value)
     }
 }
 
-impl From<OleMethodData> for HelpTarget {
+impl<'a> From<OleMethodData<'a>> for HelpTarget<'a> {
     fn from(value: OleMethodData) -> Self {
         HelpTarget::OleMethod(value)
     }
 }
 
-impl From<PathBuf> for HelpTarget {
+impl<'a> From<PathBuf> for HelpTarget<'a> {
     fn from(value: PathBuf) -> Self {
         HelpTarget::HelpFile(value)
     }
 }
 
-/*pub fn ole_show_help<H: Into<HelpTarget>>(target: H, helpcontext: Option<u32>) -> Result<HWND> {
+pub fn ole_show_help<H: Into<HelpTarget>>(target: H, helpcontext: Option<u32>) -> Result<HWND> {
     let target = target.into();
     use HelpTarget::*;
     let (helpfile, helpcontext) = match target {

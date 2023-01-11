@@ -1,7 +1,7 @@
 use crate::{
     error::Result,
     oleparamdata::OleParamData,
-    types::ReferencedTypes,
+    types::{Methods, ReferencedTypes},
     util::{
         conv::ToWide,
         ole::{TypeRef, ValueDescription},
@@ -10,6 +10,7 @@ use crate::{
 };
 use std::{
     ffi::OsStr,
+    marker::PhantomData,
     ptr::{self, NonNull},
 };
 use windows::{
@@ -21,29 +22,41 @@ use windows::{
 };
 
 #[derive(Debug)]
-pub struct OleMethodData {
+pub struct OleMethodData<'a> {
     owner_typeinfo: Option<ITypeInfo>,
     owner_type_attr: Option<NonNull<TYPEATTR>>,
     typeinfo: ITypeInfo,
     name: String,
     index: u32,
     func_desc: NonNull<FUNCDESC>,
+    parent: PhantomData<&'a OleTypeData>,
 }
 
-impl OleMethodData {
+impl<'a> OleMethodData<'a> {
     pub fn new<S: AsRef<OsStr>>(ole_type: &OleTypeData, name: S) -> Result<Option<OleMethodData>> {
-        OleMethodData::from_typeinfo(ole_type.typeinfo(), name)
+        OleMethodData::from_typeinfo(ole_type.typeinfo().clone(), name)
     }
     pub fn from_typeinfo<S: AsRef<OsStr>>(
-        typeinfo: &ITypeInfo,
+        typeinfo: ITypeInfo,
         name: S,
-    ) -> Result<Option<OleMethodData>> {
+    ) -> Result<Option<OleMethodData<'a>>> {
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
-        let mut method = ole_method_sub(None, typeinfo, &name)?;
+        let method = ole_method_sub(None, &typeinfo, &name)?;
         if method.is_some() {
             return Ok(method);
         }
-        for i in 0..unsafe { (*type_attr).cImplTypes } {
+        let referenced_types = ReferencedTypes::new(&typeinfo, unsafe{&*type_attr}, 0);
+        for referenced_type in referenced_types {
+            if let Ok(referenced_type) = referenced_type {
+                let method = ole_method_sub(Some(&typeinfo), referenced_type.typeinfo(), &name);
+                if let Ok(method) = method {
+                    if method.is_some() {
+                        return Ok(method);
+                    }
+                }
+            }
+        }
+        /*for i in 0..unsafe { (*type_attr).cImplTypes } {
             if method.is_some() {
                 break;
             }
@@ -55,10 +68,11 @@ impl OleMethodData {
             let Ok(ref_typeinfo) = result else {
                 continue;
             };
-            method = ole_method_sub(Some(typeinfo), &ref_typeinfo, &name)?;
+            method = ole_method_sub(Some(typeinfo), ref_typeinfo, &name)?;
         }
         unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(method)
+        Ok(method)*/
+        Ok(None)
     }
     fn docinfo_from_type(
         &self,
@@ -200,13 +214,14 @@ impl OleMethodData {
     }
 }
 
-impl Drop for OleMethodData {
+impl<'a> Drop for OleMethodData<'a> {
     fn drop(&mut self) {
+        println!("Inside Drop for OleMethodData");
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }
 
-impl TypeRef for OleMethodData {
+impl<'a> TypeRef for OleMethodData<'a> {
     fn typeinfo(&self) -> &ITypeInfo {
         &self.typeinfo
     }
@@ -216,48 +231,79 @@ impl TypeRef for OleMethodData {
     }
 }
 
-impl ValueDescription for OleMethodData {}
+impl<'a> ValueDescription for OleMethodData<'a> {}
 
-pub(crate) fn ole_methods_from_typeinfo(
-    typeinfo: &ITypeInfo,
+pub(crate) fn ole_methods_from_typeinfo<'a>(
+    typeinfo: ITypeInfo,
     mask: i32,
-) -> Result<Vec<OleMethodData>> {
+) -> Result<Vec<OleMethodData<'a>>> {
     let type_attr = unsafe { typeinfo.GetTypeAttr()? };
     let mut methods = vec![];
-    ole_methods_sub(None, typeinfo, &mut methods, mask)?;
-    let referenced_types = ReferencedTypes::new(typeinfo, unsafe {&*type_attr}, 0);
+    ole_methods_sub(None, &typeinfo, &mut methods, mask)?;
+    let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
     for referenced_type in referenced_types {
         if let Ok(referenced_type) = referenced_type {
-            ole_methods_sub(Some(typeinfo), referenced_type.typeinfo(), &mut methods, mask)?;            
+            ole_methods_sub(
+                Some(&typeinfo),
+                referenced_type.typeinfo(),
+                &mut methods,
+                mask,
+            )?;
         }
     }
     unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
     Ok(methods)
 }
-fn ole_method_sub<S: AsRef<OsStr>>(
+fn ole_method_sub<'a, S: AsRef<OsStr>>(
     owner_typeinfo: Option<&ITypeInfo>,
     typeinfo: &ITypeInfo,
     name: &S,
-) -> Result<Option<OleMethodData>> {
-    let type_attr = unsafe { (*typeinfo).GetTypeAttr()? };
+) -> Result<Option<OleMethodData<'a>>> {
+    let methods = Methods::new(typeinfo)?;
+
     let fname = name.to_wide_null();
     let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
 
-    let mut i = 0;
+    for (i, method) in methods.enumerate() {
+        if let Ok(method) = method {
+            if unsafe { fname_pcwstr.as_wide() } == method.name().as_wide() {
+                let (typeinfo, func_desc, bstrname) = method.deconstruct();
+
+                let owner_type_attr = if let Some(ref owner_typeinfo) = owner_typeinfo {
+                    let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
+                    let type_attr = NonNull::new(type_attr).unwrap();
+                    Some(type_attr)
+                } else {
+                    None
+                };
+                return Ok(Some(OleMethodData {
+                    owner_typeinfo: owner_typeinfo.cloned(),
+                    owner_type_attr,
+                    typeinfo,
+                    name: bstrname.to_string(),
+                    index: i as u32,
+                    func_desc,
+                    parent: PhantomData,
+                }));
+            }
+        }
+    }
+
+    /*let mut i = 0;
     let num_funcs = unsafe { (*type_attr).cFuncs };
     let mut method = None;
     loop {
         if i == num_funcs {
             break;
         }
-        let result = unsafe { (*typeinfo).GetFuncDesc(i as u32) };
+        let result = unsafe { typeinfo.GetFuncDesc(i as u32) };
         let Ok(funcdesc) = result else {
             continue;
         };
 
         let mut bstrname = BSTR::default();
         let result = unsafe {
-            (*typeinfo).GetDocumentation(
+            typeinfo.GetDocumentation(
                 (*funcdesc).memid,
                 Some(&mut bstrname),
                 None,
@@ -266,13 +312,13 @@ fn ole_method_sub<S: AsRef<OsStr>>(
             )
         };
         if result.is_err() {
-            unsafe { (*typeinfo).ReleaseFuncDesc(funcdesc) };
+            unsafe { typeinfo.ReleaseFuncDesc(funcdesc) };
             continue;
         }
         if unsafe { fname_pcwstr.as_wide() } == bstrname.as_wide() {
             let func_desc = NonNull::new(funcdesc);
             if let Some(func_desc) = func_desc {
-                let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
+                let owner_type_attr = if let Some(ref owner_typeinfo) = owner_typeinfo {
                     let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
                     let type_attr = NonNull::new(type_attr).unwrap();
                     Some(type_attr)
@@ -280,20 +326,21 @@ fn ole_method_sub<S: AsRef<OsStr>>(
                     None
                 };
                 method = Some(OleMethodData {
-                    owner_typeinfo: owner_typeinfo.cloned(),
+                    owner_typeinfo: owner_typeinfo.clone(),
                     owner_type_attr,
                     typeinfo: typeinfo.clone(),
                     name: bstrname.to_string(),
                     index: i as u32,
                     func_desc,
+                    parent: PhantomData,
                 });
             }
         }
-        unsafe { (*typeinfo).ReleaseFuncDesc(funcdesc) };
+        unsafe { typeinfo.ReleaseFuncDesc(funcdesc) };
         i += 1;
     }
-    unsafe { (*typeinfo).ReleaseTypeAttr(type_attr) };
-    Ok(method)
+    unsafe { typeinfo.ReleaseTypeAttr(type_attr) };*/
+    Ok(None)
 }
 fn ole_methods_sub(
     owner_typeinfo: Option<&ITypeInfo>,
@@ -338,6 +385,7 @@ fn ole_methods_sub(
                             name: bstrname.to_string(),
                             index: i as u32,
                             func_desc,
+                            parent: PhantomData,
                         });
                     }
                 }
