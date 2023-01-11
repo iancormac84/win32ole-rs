@@ -1,6 +1,7 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let excel = win32ole::OleTypeData::new("Microsoft Excel 16.0 Object Library", "Worksheet")?;
     let ole_types = excel.implemented_ole_types()?;
+    println!("ole_types.len() is {}", ole_types.len());
     let methods = excel.ole_methods()?;
     println!("methods.len() is {}", methods.len());
     for method in methods {
