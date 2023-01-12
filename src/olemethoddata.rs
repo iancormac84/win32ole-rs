@@ -56,22 +56,7 @@ impl<'a> OleMethodData<'a> {
                 }
             }
         }
-        /*for i in 0..unsafe { (*type_attr).cImplTypes } {
-            if method.is_some() {
-                break;
-            }
-            let result = unsafe { typeinfo.GetRefTypeOfImplType(i as u32) };
-            let Ok(href) = result else {
-                continue;
-            };
-            let result = unsafe { typeinfo.GetRefTypeInfo(href) };
-            let Ok(ref_typeinfo) = result else {
-                continue;
-            };
-            method = ole_method_sub(Some(typeinfo), ref_typeinfo, &name)?;
-        }
-        unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
-        Ok(method)*/
+
         Ok(None)
     }
     fn docinfo_from_type(
@@ -216,7 +201,7 @@ impl<'a> OleMethodData<'a> {
 
 impl<'a> Drop for OleMethodData<'a> {
     fn drop(&mut self) {
-        println!("Inside Drop for OleMethodData");
+        println!("Inside Drop for OleMethodData {}", self.name());
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }
@@ -289,57 +274,6 @@ fn ole_method_sub<'a, S: AsRef<OsStr>>(
         }
     }
 
-    /*let mut i = 0;
-    let num_funcs = unsafe { (*type_attr).cFuncs };
-    let mut method = None;
-    loop {
-        if i == num_funcs {
-            break;
-        }
-        let result = unsafe { typeinfo.GetFuncDesc(i as u32) };
-        let Ok(funcdesc) = result else {
-            continue;
-        };
-
-        let mut bstrname = BSTR::default();
-        let result = unsafe {
-            typeinfo.GetDocumentation(
-                (*funcdesc).memid,
-                Some(&mut bstrname),
-                None,
-                ptr::null_mut(),
-                None,
-            )
-        };
-        if result.is_err() {
-            unsafe { typeinfo.ReleaseFuncDesc(funcdesc) };
-            continue;
-        }
-        if unsafe { fname_pcwstr.as_wide() } == bstrname.as_wide() {
-            let func_desc = NonNull::new(funcdesc);
-            if let Some(func_desc) = func_desc {
-                let owner_type_attr = if let Some(ref owner_typeinfo) = owner_typeinfo {
-                    let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
-                    let type_attr = NonNull::new(type_attr).unwrap();
-                    Some(type_attr)
-                } else {
-                    None
-                };
-                method = Some(OleMethodData {
-                    owner_typeinfo: owner_typeinfo.clone(),
-                    owner_type_attr,
-                    typeinfo: typeinfo.clone(),
-                    name: bstrname.to_string(),
-                    index: i as u32,
-                    func_desc,
-                    parent: PhantomData,
-                });
-            }
-        }
-        unsafe { typeinfo.ReleaseFuncDesc(funcdesc) };
-        i += 1;
-    }
-    unsafe { typeinfo.ReleaseTypeAttr(type_attr) };*/
     Ok(None)
 }
 fn ole_methods_sub(

@@ -98,7 +98,7 @@ impl OleData {
     }
     pub fn ole_type(&self) -> Result<OleTypeData> {
         let typeinfo = self.get_type_info()?;
-        OleTypeData::try_from(&typeinfo)
+        OleTypeData::try_from(typeinfo)
     }
     pub fn ole_typelib(&self) -> Result<OleTypeLibData> {
         let typeinfo = self.get_type_info()?;

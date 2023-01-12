@@ -97,6 +97,9 @@ impl TypeImplDesc {
     pub fn typeinfo(&self) -> &ITypeInfo {
         &self.typeinfo
     }
+    pub fn into_typeinfo(self) -> ITypeInfo {
+        self.typeinfo
+    }
     pub fn is_source(&self) -> bool {
         self.impl_type_flags & IMPLTYPEFLAG_FSOURCE != IMPLTYPEFLAGS(0)
     }
@@ -119,6 +122,7 @@ impl TypeImplDesc {
             unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
             return Err(result.unwrap_err());
         }
+        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(bstrname.to_string())
     }
 }

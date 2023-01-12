@@ -154,22 +154,23 @@ impl OleTypeData {
             INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
         )
     }
+    
     fn ole_type_impl_ole_types(&self, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
         let mut types = vec![];
-
+    
         let referenced_types =
-            ReferencedTypes::new(&self.typeinfo, unsafe { self.type_attr.as_ref() }, 0);
+            ReferencedTypes::new(self.typeinfo(), unsafe{self.type_attr.as_ref()}, 0);
         for referenced_type in referenced_types {
             if let Ok(referenced_type) = referenced_type {
                 if referenced_type.matches(implflags) {
-                    let type_ = OleTypeData::try_from(referenced_type.typeinfo());
+                    let type_ = OleTypeData::try_from(referenced_type.into_typeinfo());
                     if let Ok(type_) = type_ {
                         types.push(type_);
                     }
                 }
             }
         }
-
+    
         Ok(types)
     }
     pub fn implemented_ole_types(&self) -> Result<Vec<OleTypeData>> {
@@ -191,7 +192,7 @@ impl OleTypeData {
 
 impl Drop for OleTypeData {
     fn drop(&mut self) {
-        println!("Inside Drop for OleTypeData");
+        println!("Inside Drop for OleTypeData {}", self.name());
         unsafe { self.typeinfo.ReleaseTypeAttr(self.type_attr.as_ptr()) };
     }
 }
@@ -208,10 +209,10 @@ impl TypeRef for OleTypeData {
 
 impl ValueDescription for OleTypeData {}
 
-impl TryFrom<&ITypeInfo> for OleTypeData {
+impl TryFrom<ITypeInfo> for OleTypeData {
     type Error = Error;
 
-    fn try_from(typeinfo: &ITypeInfo) -> Result<OleTypeData> {
+    fn try_from(typeinfo: ITypeInfo) -> Result<OleTypeData> {
         let mut index = 0;
         let mut typelib = None;
         let result = unsafe { typeinfo.GetContainingTypeLib(&mut typelib, &mut index) };
@@ -236,7 +237,7 @@ impl TryFrom<&ITypeInfo> for OleTypeData {
         let type_attr = NonNull::new(type_attr).unwrap();
 
         Ok(OleTypeData {
-            typeinfo: typeinfo.clone(),
+            typeinfo,
             name: bstr.to_string(),
             type_attr,
         })
@@ -250,20 +251,20 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(
     let typeinfos = TypeInfos::from(typelib);
     let ole_class_names = OleClassNames::from(typelib);
     let iter_pair = zip(typeinfos, ole_class_names);
-    for (typeinfo, ole_class_name) in iter_pair {
+    for (typeinfo, name) in iter_pair {
         let Ok(typeinfo) = typeinfo else {
             continue;
         };
-        let Ok(ole_class_name) = ole_class_name else {
+        let Ok(name) = name else {
             continue;
         };
-        if ole_class_name == oleclass.as_ref().to_str().unwrap() {
+        if name == oleclass.as_ref().to_str().unwrap() {
             let type_attr = unsafe { typeinfo.GetTypeAttr()? };
             let type_attr = NonNull::new(type_attr).unwrap();
 
             return Ok(Some(OleTypeData {
                 typeinfo,
-                name: ole_class_name,
+                name,
                 type_attr,
             }));
         }
