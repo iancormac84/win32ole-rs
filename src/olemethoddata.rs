@@ -231,6 +231,20 @@ impl OleMethodData {
     pub fn offset_vtbl(&self) -> Result<i16> {
         Ok(unsafe { self.func_desc.as_ref().oVft })
     }
+    pub fn event_interface(&self) -> Result<Option<String>> {
+        if self.is_event() {
+            let mut name = BSTR::default();
+            self.docinfo_from_type(Some(&mut name), None, ptr::null_mut(), None)?;
+            return Ok(Some(name.to_string()));
+        }
+        Ok(None)
+    }
+    pub fn size_params(&self) -> i16 {
+        unsafe { self.func_desc.as_ref().cParams }
+    }
+    pub fn size_opt_params(&self) -> i16 {
+        unsafe { self.func_desc.as_ref().cParamsOpt }
+    }
 }
 
 impl Drop for OleMethodData {
