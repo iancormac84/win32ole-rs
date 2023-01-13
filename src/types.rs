@@ -7,7 +7,7 @@ use windows::{
     },
 };
 
-use crate::{util::ole::TypeRef, OleTypeData};
+use crate::{olevariabledata::OleVariableData, util::ole::TypeRef, OleTypeData};
 
 pub struct TypeInfos<'a> {
     typelib: &'a ITypeLib,
@@ -161,14 +161,17 @@ impl<'a> Iterator for ReferencedTypes<'a> {
         unsafe {
             let impl_type_flags = self.typeinfo.GetImplTypeFlags(self.index as u32);
             let Ok(impl_type_flags) = impl_type_flags else {
+                self.index += 1;
                 return Some(Err(impl_type_flags.unwrap_err()));
             };
             let ref_type = self.typeinfo.GetRefTypeOfImplType(self.index as u32);
             let Ok(ref_type) = ref_type else {
+                self.index += 1;
                 return Some(Err(ref_type.unwrap_err()));
             };
             let ref_type_info = self.typeinfo.GetRefTypeInfo(ref_type);
             let Ok(ref_type_info) = ref_type_info else {
+                self.index += 1;
                 return Some(Err(ref_type_info.unwrap_err()));
             };
 
@@ -233,6 +236,7 @@ impl<'a> Iterator for Methods<'a> {
 
         let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index as u32) };
         let Ok(funcdesc) = funcdesc else {
+            self.index += 1;
             return Some(Err(funcdesc.unwrap_err()));
         };
         let mut bstrname = BSTR::default();
@@ -245,16 +249,17 @@ impl<'a> Iterator for Methods<'a> {
                 None,
             )
         };
+        self.index += 1;
         if let Err(error) = result {
             unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
-            return Some(Err(error));
+            Some(Err(error))
+        } else {
+            Some(Ok(Method {
+                typeinfo: self.typeinfo.clone(),
+                func_desc: NonNull::new(funcdesc).unwrap(),
+                bstrname,
+            }))
         }
-        self.index += 1;
-        Some(Ok(Method {
-            typeinfo: self.typeinfo.clone(),
-            func_desc: NonNull::new(funcdesc).unwrap(),
-            bstrname,
-        }))
     }
 }
 
@@ -265,3 +270,105 @@ impl<'a> Drop for Methods<'a> {
         }
     }
 }
+
+pub struct Variables<'a> {
+    typeinfo: &'a ITypeInfo,
+    count: u16,
+    index: u16,
+}
+
+impl<'a> Variables<'a> {
+    pub fn new(typeinfo: &'a ITypeInfo, attributes: &TYPEATTR) -> Self {
+        Variables {
+            typeinfo,
+            count: attributes.cVars,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for Variables<'a> {
+    type Item = Result<OleVariableData, crate::error::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.count {
+            return None;
+        }
+
+        let var_desc = unsafe { self.typeinfo.GetVarDesc(self.index as u32) };
+        let Ok(var_desc) = var_desc else {
+            self.index += 1;
+            return Some(Err(var_desc.unwrap_err().into()));
+        };
+        let mut len = 0;
+        let mut rgbstrnames = BSTR::default();
+        let result = unsafe {
+            self.typeinfo
+                .GetNames((*var_desc).memid, &mut rgbstrnames, 1, &mut len)
+        };
+        self.index += 1;
+        if let Err(error) = result {
+            unsafe { self.typeinfo.ReleaseVarDesc(var_desc) };
+            Some(Err(error.into()))
+        } else {
+            let name = match String::try_from(rgbstrnames) {
+                Ok(name) => name,
+                Err(error) => return Some(Err(error.into())),
+            };
+            let var_desc = NonNull::new(var_desc).unwrap();
+            Some(Ok(OleVariableData::make(self.typeinfo, name, var_desc)))
+        }
+    }
+}
+
+/*pub struct Params<'a> {
+    typeinfo: &'a ITypeInfo,
+    count: u16,
+    index: u16,
+    memid: i32
+}
+
+impl<'a> Params<'a> {
+    pub fn new(typeinfo: &'a ITypeInfo, func_desc: &FUNCDESC) -> Self {
+        Params {
+            typeinfo,
+            count: func_desc.cParams as u16,
+            index: 0,
+            memid: func_desc.memid,
+        }
+    }
+}
+
+impl<'a> Iterator for Params<'a> {
+    type Item = Result<OleParamData, crate::error::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.count {
+            return None;
+        }
+
+        let mut len = 0;
+        let cmaxnames = self.count + 1;
+        let mut rgbstrnames = vec![BSTR::default(); cmaxnames as usize];
+        let result = unsafe {
+            self.typeinfo.GetNames(
+                self.memid,
+                rgbstrnames.as_mut_ptr(),
+                cmaxnames as u32,
+                &mut len,
+            )
+        };
+        self.index += 1;
+        if let Err(error) = result {
+            unsafe { self.typeinfo.ReleaseVarDesc(var_desc) };
+            Some(Err(error.into()))
+        } else {
+            let name = match String::try_from(rgbstrnames) {
+                Ok(name) => name,
+                Err(error) => return Some(Err(error.into())),
+            };
+            let var_desc = NonNull::new(var_desc).unwrap();
+            Some(Ok(OleVariableData::make(self.typeinfo, name, var_desc)))
+        }
+    }
+}*/

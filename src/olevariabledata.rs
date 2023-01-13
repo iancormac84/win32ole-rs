@@ -10,13 +10,13 @@ use crate::{
     util::ole::{TypeRef, ValueDescription},
 };
 
-pub struct OleVariableData<'a> {
-    typeinfo: &'a ITypeInfo,
+pub struct OleVariableData {
+    typeinfo: ITypeInfo,
     name: String,
     var_desc: NonNull<VARDESC>,
 }
 
-impl<'a> OleVariableData<'a> {
+impl OleVariableData {
     pub fn new<S: AsRef<str>>(
         typeinfo: &ITypeInfo,
         index: u32,
@@ -25,7 +25,7 @@ impl<'a> OleVariableData<'a> {
         let var_desc = unsafe { typeinfo.GetVarDesc(index)? };
         let var_desc = NonNull::new(var_desc).unwrap();
         Ok(OleVariableData {
-            typeinfo,
+            typeinfo: typeinfo.clone(),
             name: name.as_ref().into(),
             var_desc,
         })
@@ -36,7 +36,7 @@ impl<'a> OleVariableData<'a> {
         var_desc: NonNull<VARDESC>,
     ) -> OleVariableData {
         OleVariableData {
-            typeinfo,
+            typeinfo: typeinfo.clone(),
             name: name.as_ref().into(),
             var_desc,
         }
@@ -73,19 +73,20 @@ impl<'a> OleVariableData<'a> {
     }
 }
 
-impl<'a> Drop for OleVariableData<'a> {
+impl Drop for OleVariableData {
     fn drop(&mut self) {
+        println!("Inside Drop for OleVariableData {}", self.name());
         unsafe { self.typeinfo.ReleaseVarDesc(self.var_desc.as_ptr()) };
     }
 }
 
-impl<'a> TypeRef for OleVariableData<'a> {
+impl TypeRef for OleVariableData {
     fn typeinfo(&self) -> &ITypeInfo {
-        self.typeinfo
+        &self.typeinfo
     }
     fn typedesc(&self) -> &TYPEDESC {
         unsafe { &((self.var_desc.as_ref()).elemdescVar.tdesc) }
     }
 }
 
-impl<'a> ValueDescription for OleVariableData<'a> {}
+impl ValueDescription for OleVariableData {}

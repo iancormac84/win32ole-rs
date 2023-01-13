@@ -46,17 +46,15 @@ impl<'a> OleMethodData<'a> {
             return Ok(method);
         }
         let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
-        for referenced_type in referenced_types {
-            if let Ok(referenced_type) = referenced_type {
-                let method = OleMethodData::maybe_find_and_create(
-                    Some(&typeinfo),
-                    referenced_type.typeinfo(),
-                    &name,
-                );
-                if let Ok(method) = method {
-                    if method.is_some() {
-                        return Ok(method);
-                    }
+        for referenced_type in referenced_types.filter_map(|t| t.ok()) {
+            let method = OleMethodData::maybe_find_and_create(
+                Some(&typeinfo),
+                referenced_type.typeinfo(),
+                &name,
+            );
+            if let Ok(method) = method {
+                if method.is_some() {
+                    return Ok(method);
                 }
             }
         }
@@ -182,17 +180,15 @@ impl<'a> OleMethodData<'a> {
             unsafe { self.owner_type_attr.unwrap().as_ref() },
             self.index,
         );
-        for referenced_type in referenced_types {
-            if let Ok(referenced_type) = referenced_type {
-                if referenced_type.is_source() {
-                    let name = referenced_type.name();
-                    let Ok(name) = name else {
+        for referenced_type in referenced_types.filter_map(|t| t.ok()) {
+            if referenced_type.is_source() {
+                let name = referenced_type.name();
+                let Ok(name) = name else {
                         continue;
                     };
-                    if name == self.name {
-                        event = true;
-                        break;
-                    }
+                if name == self.name {
+                    event = true;
+                    break;
                 }
             }
         }
@@ -267,15 +263,13 @@ pub(crate) fn ole_methods_from_typeinfo<'a>(
     let mut methods = vec![];
     ole_methods_sub(None, &typeinfo, &mut methods, mask)?;
     let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
-    for referenced_type in referenced_types {
-        if let Ok(referenced_type) = referenced_type {
-            ole_methods_sub(
-                Some(&typeinfo),
-                referenced_type.typeinfo(),
-                &mut methods,
-                mask,
-            )?;
-        }
+    for referenced_type in referenced_types.filter_map(|t| t.ok()) {
+        ole_methods_sub(
+            Some(&typeinfo),
+            referenced_type.typeinfo(),
+            &mut methods,
+            mask,
+        )?;
     }
     unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
     Ok(methods)

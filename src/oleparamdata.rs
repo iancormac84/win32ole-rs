@@ -105,6 +105,7 @@ impl OleParamData {
 
 impl Drop for OleParamData {
     fn drop(&mut self) {
+        println!("Inside Drop for OleParamData {}", self.name());
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }

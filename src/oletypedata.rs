@@ -3,7 +3,7 @@ use crate::{
     olemethoddata::ole_methods_from_typeinfo,
     oletypelibdata::typelib_file,
     olevariabledata::OleVariableData,
-    types::{OleClassNames, ReferencedTypes, TypeInfos},
+    types::{OleClassNames, ReferencedTypes, TypeInfos, Variables},
     util::{
         conv::ToWide,
         ole::{ole_docinfo_from_type, ole_initialized, TypeRef, ValueDescription},
@@ -127,22 +127,8 @@ impl OleTypeData {
         typeflags & (TYPEFLAG_FHIDDEN.0 | TYPEFLAG_FRESTRICTED.0) as u16 == 0
     }
     pub fn variables(&self) -> Result<Vec<OleVariableData>> {
-        let mut variables = vec![];
-        for i in 0..unsafe { self.type_attr.as_ref().cVars } {
-            let var_desc = unsafe { self.typeinfo.GetVarDesc(i as u32)? };
-            let var_desc = NonNull::new(var_desc).unwrap();
-            let mut len = 0;
-            let mut rgbstrnames = BSTR::default();
-            let res = unsafe {
-                self.typeinfo
-                    .GetNames(var_desc.as_ref().memid, &mut rgbstrnames, 1, &mut len)
-            };
-            if res.is_err() || len == 0 || rgbstrnames.is_empty() {
-                continue;
-            }
-            let name = String::try_from(rgbstrnames)?;
-            variables.push(OleVariableData::make(&self.typeinfo, name, var_desc));
-        }
+        let vars = Variables::new(self.typeinfo(), self.attribs());
+        let variables = vars.filter_map(|v| v.ok()).collect();
         Ok(variables)
     }
     pub fn src_type(&self) -> Option<String> {
@@ -162,13 +148,11 @@ impl OleTypeData {
         let mut types = vec![];
 
         let referenced_types = ReferencedTypes::from_type(self);
-        for referenced_type in referenced_types {
-            if let Ok(referenced_type) = referenced_type {
-                if referenced_type.matches(implflags) {
-                    let type_ = OleTypeData::try_from(referenced_type.into_typeinfo());
-                    if let Ok(type_) = type_ {
-                        types.push(type_);
-                    }
+        for referenced_type in referenced_types.filter_map(|t| t.ok()) {
+            if referenced_type.matches(implflags) {
+                let type_ = OleTypeData::try_from(referenced_type.into_typeinfo());
+                if let Ok(type_) = type_ {
+                    types.push(type_);
                 }
             }
         }

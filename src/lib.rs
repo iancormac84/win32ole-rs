@@ -20,6 +20,7 @@ mod util;
 pub use {
     oledata::OleData,
     olemethoddata::OleMethodData,
+    oleparamdata::OleParamData,
     oletypedata::OleTypeData,
     oletypelibdata::{oletypelib_from_guid, OleTypeLibData},
     util::conv::ToWide,
