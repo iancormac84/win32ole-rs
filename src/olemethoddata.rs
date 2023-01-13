@@ -45,10 +45,14 @@ impl<'a> OleMethodData<'a> {
         if method.is_some() {
             return Ok(method);
         }
-        let referenced_types = ReferencedTypes::new(&typeinfo, unsafe{&*type_attr}, 0);
+        let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
         for referenced_type in referenced_types {
             if let Ok(referenced_type) = referenced_type {
-                let method = OleMethodData::maybe_find_and_create(Some(&typeinfo), referenced_type.typeinfo(), &name);
+                let method = OleMethodData::maybe_find_and_create(
+                    Some(&typeinfo),
+                    referenced_type.typeinfo(),
+                    &name,
+                );
                 if let Ok(method) = method {
                     if method.is_some() {
                         return Ok(method);
@@ -65,15 +69,15 @@ impl<'a> OleMethodData<'a> {
         name: &S,
     ) -> Result<Option<OleMethodData<'a>>> {
         let methods = Methods::new(typeinfo)?;
-    
+
         let fname = name.to_wide_null();
         let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
-    
+
         for (i, method) in methods.enumerate() {
             if let Ok(method) = method {
                 if unsafe { fname_pcwstr.as_wide() } == method.name().as_wide() {
                     let (typeinfo, func_desc, bstrname) = method.deconstruct();
-    
+
                     let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
                         let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
                         let type_attr = NonNull::new(type_attr).unwrap();
@@ -93,7 +97,7 @@ impl<'a> OleMethodData<'a> {
                 }
             }
         }
-    
+
         Ok(None)
     }
     fn docinfo_from_type(

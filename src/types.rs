@@ -7,7 +7,7 @@ use windows::{
     },
 };
 
-use crate::{OleTypeData, util::ole::TypeRef};
+use crate::{util::ole::TypeRef, OleTypeData};
 
 pub struct TypeInfos<'a> {
     typelib: &'a ITypeLib,

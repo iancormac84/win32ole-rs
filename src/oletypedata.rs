@@ -50,10 +50,7 @@ impl OleTypeData {
             ))),
         }
     }
-    pub fn make<S: AsRef<str>>(
-        typeinfo: ITypeInfo,
-        name: S,
-    ) -> Result<OleTypeData> {
+    pub fn make<S: AsRef<str>>(typeinfo: ITypeInfo, name: S) -> Result<OleTypeData> {
         let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
         let type_attr = NonNull::new(type_attr).unwrap();
 
@@ -64,7 +61,7 @@ impl OleTypeData {
         })
     }
     pub fn attribs(&self) -> &TYPEATTR {
-        unsafe{self.type_attr.as_ref()}
+        unsafe { self.type_attr.as_ref() }
     }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
@@ -160,10 +157,10 @@ impl OleTypeData {
             INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
         )
     }
-    
+
     fn ole_type_impl_ole_types(&self, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
         let mut types = vec![];
-    
+
         let referenced_types = ReferencedTypes::from_type(self);
         for referenced_type in referenced_types {
             if let Ok(referenced_type) = referenced_type {
@@ -175,7 +172,7 @@ impl OleTypeData {
                 }
             }
         }
-    
+
         Ok(types)
     }
     pub fn implemented_ole_types(&self) -> Result<Vec<OleTypeData>> {
