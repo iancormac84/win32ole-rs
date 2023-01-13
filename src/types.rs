@@ -2,54 +2,12 @@ use std::ptr::{self, NonNull};
 
 use windows::{
     core::BSTR,
-    Win32::System::Com::{ITypeInfo, ITypeLib, ELEMDESC, FUNCDESC, TYPEATTR, VARDESC},
+    Win32::System::Com::{
+        ITypeInfo, ITypeLib, FUNCDESC, IMPLTYPEFLAGS, IMPLTYPEFLAG_FSOURCE, TYPEATTR,
+    },
 };
 
-pub struct TypeAttr {
-    typeinfo: ITypeInfo,
-    name: String,
-    type_attr: NonNull<TYPEATTR>,
-}
-
-impl TypeAttr {
-    pub fn new(typeinfo: ITypeInfo) -> std::result::Result<TypeAttr, windows::core::Error> {
-        let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
-        let mut name = BSTR::default();
-        unsafe { typeinfo.GetDocumentation(-1, Some(&mut name), None, ptr::null_mut(), None) }?;
-        let name = name.to_string();
-        println!("name is {name}");
-        Ok(TypeAttr {
-            typeinfo,
-            name,
-            type_attr: NonNull::new(type_attr).unwrap(),
-        })
-    }
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl PartialEq for TypeAttr {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-}
-
-impl std::ops::Deref for TypeAttr {
-    type Target = TYPEATTR;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.type_attr.as_ptr() }
-    }
-}
-
-impl Drop for TypeAttr {
-    fn drop(&mut self) {
-        unsafe {
-            self.typeinfo.ReleaseTypeAttr(self.type_attr.as_ptr());
-        }
-    }
-}
+use crate::{OleTypeData, util::ole::TypeRef};
 
 pub struct TypeInfos<'a> {
     typelib: &'a ITypeLib,
@@ -71,7 +29,7 @@ impl<'a> Iterator for TypeInfos<'a> {
     type Item = std::result::Result<ITypeInfo, windows::core::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.count {
+        if self.index == self.count {
             return None;
         }
 
@@ -101,7 +59,7 @@ impl<'a> Iterator for OleClassNames<'a> {
     type Item = std::result::Result<String, windows::core::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.count {
+        if self.index == self.count {
             return None;
         }
 
@@ -124,218 +82,186 @@ impl<'a> Iterator for OleClassNames<'a> {
     }
 }
 
-pub struct TypeAttrs<'a> {
-    typeinfos: &'a mut TypeInfos<'a>,
-}
-
-impl<'a> From<&'a mut TypeInfos<'a>> for TypeAttrs<'a> {
-    fn from(typeinfos: &'a mut TypeInfos<'a>) -> Self {
-        TypeAttrs { typeinfos }
-    }
-}
-
-impl<'a> Iterator for TypeAttrs<'a> {
-    type Item = std::result::Result<TypeAttr, windows::core::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let item = self.typeinfos.next();
-        if let Some(result) = item {
-            if let Ok(typeinfo) = result {
-                Some(TypeAttr::new(typeinfo))
-            } else {
-                Some(Err(result.unwrap_err()))
-            }
-        } else {
-            None
-        }
-    }
-}
-
-pub struct Var<'a> {
-    type_attr: &'a TypeAttr,
+#[derive(Debug)]
+pub struct TypeImplDesc {
+    typeinfo: ITypeInfo,
     index: u32,
-    name: String,
-    var_desc: std::ptr::NonNull<VARDESC>,
+    impl_type_flags: IMPLTYPEFLAGS,
 }
-
-impl<'a> Drop for Var<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            self.type_attr
-                .typeinfo
-                .ReleaseVarDesc(self.var_desc.as_ptr())
-        };
-    }
-}
-
-impl<'a> Var<'a> {
-    pub fn new(
-        type_attr: &'a TypeAttr,
-        index: u32,
-    ) -> std::result::Result<Var, windows::core::Error> {
-        let var_desc = unsafe { type_attr.typeinfo.GetVarDesc(index) }?;
-        let mut rgbstrnames = BSTR::default();
-        let mut pcnames = 0;
-        unsafe {
-            type_attr
-                .typeinfo
-                .GetNames((*var_desc).memid, &mut rgbstrnames, 1, &mut pcnames)
-        }?;
-        Ok(Var {
-            type_attr,
+impl TypeImplDesc {
+    pub fn new(typeinfo: ITypeInfo, index: u32, impl_type_flags: IMPLTYPEFLAGS) -> Self {
+        TypeImplDesc {
+            typeinfo,
             index,
-            name: rgbstrnames.to_string(),
-            var_desc: std::ptr::NonNull::new(var_desc).unwrap(),
-        })
-    }
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl<'a> PartialEq for Var<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.index == other.index
-    }
-}
-
-pub struct IterVars<'a> {
-    type_attr: &'a TypeAttr,
-    count: u16,
-    index: u16,
-}
-
-impl<'a> From<&'a TypeAttr> for IterVars<'a> {
-    fn from(type_attr: &'a TypeAttr) -> Self {
-        IterVars {
-            type_attr,
-            count: type_attr.cVars,
-            index: 0,
+            impl_type_flags,
         }
     }
-}
-
-impl<'a> Iterator for IterVars<'a> {
-    type Item = std::result::Result<Var<'a>, windows::core::Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.count {
-            return None;
-        }
-
-        let result = Var::new(&self.type_attr, self.index as u32);
-        self.index += 1;
-        Some(result)
+    pub fn typeinfo(&self) -> &ITypeInfo {
+        &self.typeinfo
     }
-}
-
-pub struct Method<'a> {
-    type_attr: &'a TypeAttr,
-    index: u32,
-    name: String,
-    func_desc: std::ptr::NonNull<FUNCDESC>,
-    params: Vec<Param>,
-}
-
-impl<'a> Method<'a> {
-    pub fn new(
-        type_attr: &'a TypeAttr,
-        index: u32,
-    ) -> std::result::Result<Method, windows::core::Error> {
-        let func_desc = unsafe { type_attr.typeinfo.GetFuncDesc(index) }?;
-        let mut len = 0;
-        let mut rgbstrnames = vec![BSTR::default(); unsafe { (*func_desc).cParams } as usize + 1];
-        unsafe {
-            type_attr.typeinfo.GetNames(
-                (*func_desc).memid,
-                rgbstrnames.as_mut_ptr(),
-                (*func_desc).cParams as u32 + 1,
-                &mut len,
+    pub fn into_typeinfo(self) -> ITypeInfo {
+        self.typeinfo
+    }
+    pub fn is_source(&self) -> bool {
+        self.impl_type_flags & IMPLTYPEFLAG_FSOURCE != IMPLTYPEFLAGS(0)
+    }
+    pub fn matches(&self, flags: IMPLTYPEFLAGS) -> bool {
+        (self.impl_type_flags & flags) == flags
+    }
+    pub fn name(&self) -> windows::core::Result<String> {
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index)? };
+        let mut bstrname = BSTR::default();
+        let result = unsafe {
+            self.typeinfo.GetDocumentation(
+                (*funcdesc).memid,
+                Some(&mut bstrname),
+                None,
+                ptr::null_mut(),
+                None,
             )
-        }?;
-        let name = rgbstrnames[0].to_string();
-        let mut params = vec![];
-
-        if unsafe { (*func_desc).cParams } > 0 {
-            for i in 1..len {
-                let elem_desc = unsafe { (*func_desc).lprgelemdescParam.offset(i as isize) };
-                let elem_desc = std::ptr::NonNull::new(elem_desc).unwrap();
-                let param = Param {
-                    name: rgbstrnames[i as usize].to_string(),
-                    elem_desc,
-                };
-                params.push(param);
-            }
-        }
-        Ok(Method {
-            type_attr,
-            index,
-            name,
-            func_desc: std::ptr::NonNull::new(func_desc).unwrap(),
-            params,
-        })
-    }
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    pub fn params(&self) -> &[Param] {
-        &self.params
-    }
-}
-
-impl<'a> PartialEq for Method<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.index == other.index
-    }
-}
-
-impl<'a> Drop for Method<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            self.type_attr
-                .typeinfo
-                .ReleaseFuncDesc(self.func_desc.as_ptr())
         };
+        if let Err(error) = result {
+            unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
+            return Err(error);
+        }
+        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
+        Ok(bstrname.to_string())
     }
 }
 
-pub struct IterMethods<'a> {
-    type_attr: &'a TypeAttr,
+pub struct ReferencedTypes<'a> {
+    typeinfo: &'a ITypeInfo,
+    count: u16,
+    index: u16,
+    method_index: u32,
+}
+
+impl<'a> ReferencedTypes<'a> {
+    pub fn new(typeinfo: &'a ITypeInfo, attributes: &TYPEATTR, method_index: u32) -> Self {
+        ReferencedTypes {
+            typeinfo,
+            count: attributes.cImplTypes,
+            index: 0,
+            method_index,
+        }
+    }
+    pub fn from_type(ole_type: &'a OleTypeData) -> Self {
+        ReferencedTypes::new(ole_type.typeinfo(), ole_type.attribs(), 0)
+    }
+}
+
+impl<'a> Iterator for ReferencedTypes<'a> {
+    type Item = Result<TypeImplDesc, windows::core::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index == self.count {
+            return None;
+        }
+
+        unsafe {
+            let impl_type_flags = self.typeinfo.GetImplTypeFlags(self.index as u32);
+            let Ok(impl_type_flags) = impl_type_flags else {
+                return Some(Err(impl_type_flags.unwrap_err()));
+            };
+            let ref_type = self.typeinfo.GetRefTypeOfImplType(self.index as u32);
+            let Ok(ref_type) = ref_type else {
+                return Some(Err(ref_type.unwrap_err()));
+            };
+            let ref_type_info = self.typeinfo.GetRefTypeInfo(ref_type);
+            let Ok(ref_type_info) = ref_type_info else {
+                return Some(Err(ref_type_info.unwrap_err()));
+            };
+
+            self.index += 1;
+
+            Some(Ok(TypeImplDesc::new(
+                ref_type_info,
+                self.method_index,
+                impl_type_flags,
+            )))
+        }
+    }
+}
+
+pub struct Method {
+    typeinfo: ITypeInfo,
+    func_desc: NonNull<FUNCDESC>,
+    bstrname: BSTR,
+}
+
+impl Method {
+    pub fn name(&self) -> &BSTR {
+        &self.bstrname
+    }
+    pub fn deconstruct(self) -> (ITypeInfo, NonNull<FUNCDESC>, BSTR) {
+        (self.typeinfo, self.func_desc, self.bstrname)
+    }
+    pub fn invkind_matches(&self, mask: i32) -> bool {
+        let invkind = unsafe { self.func_desc.as_ref().invkind.0 };
+        invkind & mask != 0
+    }
+}
+
+pub struct Methods<'a> {
+    typeinfo: &'a ITypeInfo,
+    type_attr: NonNull<TYPEATTR>,
     count: u16,
     index: u16,
 }
 
-impl<'a> From<&'a TypeAttr> for IterMethods<'a> {
-    fn from(type_attr: &'a TypeAttr) -> Self {
-        IterMethods {
+impl<'a> Methods<'a> {
+    pub fn new(typeinfo: &'a ITypeInfo) -> windows::core::Result<Self> {
+        let type_attr = unsafe { typeinfo.GetTypeAttr()? };
+        let type_attr = NonNull::new(type_attr).unwrap();
+        let count = unsafe { type_attr.as_ref().cFuncs };
+        Ok(Methods {
+            typeinfo,
             type_attr,
-            count: type_attr.cFuncs,
+            count,
             index: 0,
-        }
+        })
     }
 }
 
-impl<'a> Iterator for IterMethods<'a> {
-    type Item = std::result::Result<Method<'a>, windows::core::Error>;
+impl<'a> Iterator for Methods<'a> {
+    type Item = Result<Method, windows::core::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.count {
+        if self.index == self.count {
             return None;
         }
 
-        let result = Method::new(self.type_attr.into(), self.index as u32);
+        let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index as u32) };
+        let Ok(funcdesc) = funcdesc else {
+            return Some(Err(funcdesc.unwrap_err()));
+        };
+        let mut bstrname = BSTR::default();
+        let result = unsafe {
+            self.typeinfo.GetDocumentation(
+                (*funcdesc).memid,
+                Some(&mut bstrname),
+                None,
+                ptr::null_mut(),
+                None,
+            )
+        };
+        if let Err(error) = result {
+            unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
+            return Some(Err(error));
+        }
         self.index += 1;
-        Some(result)
+        Some(Ok(Method {
+            typeinfo: self.typeinfo.clone(),
+            func_desc: NonNull::new(funcdesc).unwrap(),
+            bstrname,
+        }))
     }
 }
 
-pub struct Param {
-    name: String,
-    elem_desc: std::ptr::NonNull<ELEMDESC>,
-}
-
-impl Param {
-    pub fn name(&self) -> &str {
-        &self.name
+impl<'a> Drop for Methods<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            self.typeinfo.ReleaseTypeAttr(self.type_attr.as_ptr());
+        }
     }
 }

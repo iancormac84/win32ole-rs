@@ -1,26 +1,26 @@
 use std::ptr::NonNull;
 
 use windows::Win32::System::{
-    Com::{ITypeInfo, FUNCDESC},
+    Com::{ITypeInfo, FUNCDESC, TYPEDESC},
     Ole::{PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT},
 };
 
 use crate::{
     error::{Error, Result},
-    util::ole::ole_typedesc2val,
+    util::ole::{TypeRef, ValueDescription},
     OleMethodData,
 };
 
-pub struct OleParamData<'a> {
-    typeinfo: &'a ITypeInfo,
+pub struct OleParamData {
+    typeinfo: ITypeInfo,
     method_index: u32,
     index: u32,
     name: String,
     func_desc: NonNull<FUNCDESC>,
 }
 
-impl<'a> OleParamData<'a> {
-    pub fn new(olemethod: &OleMethodData, n: u32) -> Result<OleParamData> {
+impl OleParamData {
+    pub fn new(olemethod: OleMethodData, n: u32) -> Result<OleParamData> {
         oleparam_ole_param_from_index(olemethod.typeinfo(), olemethod.index(), n as i32)
     }
     pub fn make(
@@ -29,7 +29,7 @@ impl<'a> OleParamData<'a> {
         index: u32,
         name: String,
     ) -> Result<OleParamData> {
-        let typeinfo = olemethod.typeinfo();
+        let typeinfo = olemethod.typeinfo().clone();
         let func_desc = unsafe { typeinfo.GetFuncDesc(method_index) }?;
         let func_desc = NonNull::new(func_desc).unwrap();
 
@@ -51,30 +51,11 @@ impl<'a> OleParamData<'a> {
         self.index
     }
     pub fn ole_type(&self) -> Result<String> {
-        let typ = ole_typedesc2val(
-            &self.typeinfo,
-            unsafe {
-                &(*(self.func_desc.as_ref())
-                    .lprgelemdescParam
-                    .offset(self.index as isize))
-                .tdesc
-            },
-            None,
-        );
-        Ok(typ)
+        Ok(self.ole_typedesc2val(None))
     }
     pub fn ole_type_detail(&self) -> Result<Vec<String>> {
         let mut typedetails = vec![];
-        ole_typedesc2val(
-            &self.typeinfo,
-            unsafe {
-                &(*(self.func_desc.as_ref())
-                    .lprgelemdescParam
-                    .offset(self.index as isize))
-                .tdesc
-            },
-            Some(&mut typedetails),
-        );
+        self.ole_typedesc2val(Some(&mut typedetails));
         Ok(typedetails)
     }
     fn ole_param_flag_mask(&self, mask: u16) -> bool {
@@ -122,17 +103,34 @@ impl<'a> OleParamData<'a> {
     }*/
 }
 
-impl<'a> Drop for OleParamData<'a> {
+impl Drop for OleParamData {
     fn drop(&mut self) {
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }
+
+impl TypeRef for OleParamData {
+    fn typeinfo(&self) -> &ITypeInfo {
+        &self.typeinfo
+    }
+    fn typedesc(&self) -> &TYPEDESC {
+        unsafe {
+            &(*(self.func_desc.as_ref())
+                .lprgelemdescParam
+                .offset(self.index as isize))
+            .tdesc
+        }
+    }
+}
+
+impl ValueDescription for OleParamData {}
 
 fn oleparam_ole_param_from_index(
     typeinfo: &ITypeInfo,
     method_index: u32,
     param_index: i32,
 ) -> Result<OleParamData> {
+    let typeinfo = typeinfo.clone();
     let func_desc = unsafe { typeinfo.GetFuncDesc(method_index) }?;
     let func_desc = NonNull::new(func_desc).unwrap();
 
@@ -147,6 +145,7 @@ fn oleparam_ole_param_from_index(
             &mut len,
         )
     };
+    println!("Inside oleparam_ole_param_from_index call");
     if let Err(error) = result {
         unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
         return Err(Error::Custom(format!(
