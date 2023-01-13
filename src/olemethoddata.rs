@@ -10,7 +10,6 @@ use crate::{
 };
 use std::{
     ffi::OsStr,
-    marker::PhantomData,
     ptr::{self, NonNull},
 };
 use windows::{
@@ -22,24 +21,23 @@ use windows::{
 };
 
 #[derive(Debug)]
-pub struct OleMethodData<'a> {
+pub struct OleMethodData {
     owner_typeinfo: Option<ITypeInfo>,
     owner_type_attr: Option<NonNull<TYPEATTR>>,
     typeinfo: ITypeInfo,
     name: String,
     index: u32,
     func_desc: NonNull<FUNCDESC>,
-    parent: PhantomData<&'a OleTypeData>,
 }
 
-impl<'a> OleMethodData<'a> {
+impl OleMethodData {
     pub fn new<S: AsRef<OsStr>>(ole_type: &OleTypeData, name: S) -> Result<Option<OleMethodData>> {
         OleMethodData::from_typeinfo(ole_type.typeinfo().clone(), name)
     }
     pub fn from_typeinfo<S: AsRef<OsStr>>(
         typeinfo: ITypeInfo,
         name: S,
-    ) -> Result<Option<OleMethodData<'a>>> {
+    ) -> Result<Option<OleMethodData>> {
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
         let method = OleMethodData::maybe_find_and_create(None, &typeinfo, &name)?;
         if method.is_some() {
@@ -65,7 +63,7 @@ impl<'a> OleMethodData<'a> {
         owner_typeinfo: Option<&ITypeInfo>,
         typeinfo: &ITypeInfo,
         name: &S,
-    ) -> Result<Option<OleMethodData<'a>>> {
+    ) -> Result<Option<OleMethodData>> {
         let methods = Methods::new(typeinfo)?;
 
         let fname = name.to_wide_null();
@@ -90,7 +88,6 @@ impl<'a> OleMethodData<'a> {
                         name: bstrname.to_string(),
                         index: i as u32,
                         func_desc,
-                        parent: PhantomData,
                     }));
                 }
             }
@@ -234,16 +231,30 @@ impl<'a> OleMethodData<'a> {
     pub fn offset_vtbl(&self) -> Result<i16> {
         Ok(unsafe { self.func_desc.as_ref().oVft })
     }
+    pub fn event_interface(&self) -> Result<Option<String>> {
+        if self.is_event() {
+            let mut name = BSTR::default();
+            self.docinfo_from_type(Some(&mut name), None, ptr::null_mut(), None)?;
+            return Ok(Some(name.to_string()));
+        }
+        Ok(None)
+    }
+    pub fn size_params(&self) -> i16 {
+        unsafe { self.func_desc.as_ref().cParams }
+    }
+    pub fn size_opt_params(&self) -> i16 {
+        unsafe { self.func_desc.as_ref().cParamsOpt }
+    }
 }
 
-impl<'a> Drop for OleMethodData<'a> {
+impl Drop for OleMethodData {
     fn drop(&mut self) {
         println!("Inside Drop for OleMethodData {}", self.name());
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }
 
-impl<'a> TypeRef for OleMethodData<'a> {
+impl TypeRef for OleMethodData {
     fn typeinfo(&self) -> &ITypeInfo {
         &self.typeinfo
     }
@@ -253,12 +264,12 @@ impl<'a> TypeRef for OleMethodData<'a> {
     }
 }
 
-impl<'a> ValueDescription for OleMethodData<'a> {}
+impl ValueDescription for OleMethodData {}
 
-pub(crate) fn ole_methods_from_typeinfo<'a>(
+pub(crate) fn ole_methods_from_typeinfo(
     typeinfo: ITypeInfo,
     mask: i32,
-) -> Result<Vec<OleMethodData<'a>>> {
+) -> Result<Vec<OleMethodData>> {
     let type_attr = unsafe { typeinfo.GetTypeAttr()? };
     let mut methods = vec![];
     ole_methods_sub(None, &typeinfo, &mut methods, mask)?;
@@ -300,7 +311,6 @@ fn ole_methods_sub(
                     name: bstrname.to_string(),
                     index: i as u32,
                     func_desc,
-                    parent: PhantomData,
                 });
             }
         }
