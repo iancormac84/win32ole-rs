@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for param in params {
             match param {
                 Ok(param) => println!("        {method_name} parameter: {}", param.name()),
-                Err(error) => println!("        {error}"),
+                Err(error) => println!("        Error: {error}"),
             }
         }
     }
@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for param in params {
                 match param {
                     Ok(param) => println!("        {ole_type_method_name} parameter: {}", param.name()),
-                    Err(error) => println!("        {error}"),
+                    Err(error) => println!("        Error: {error}"),
                 }
             }
         }
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for param in params {
             match param {
                 Ok(param) => println!("        {method_name} parameter: {}", param.name()),
-                Err(error) => println!("        {error}"),
+                Err(error) => println!("        Error: {error}"),
             }
         }
     }
