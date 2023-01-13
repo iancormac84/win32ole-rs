@@ -118,9 +118,9 @@ impl TypeImplDesc {
                 None,
             )
         };
-        if result.is_err() {
+        if let Err(error) = result {
             unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
-            return Err(result.unwrap_err());
+            return Err(error);
         }
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(bstrname.to_string())
@@ -236,9 +236,9 @@ impl<'a> Iterator for Methods<'a> {
                 None,
             )
         };
-        if result.is_err() {
+        if let Err(error) = result {
             unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
-            return Some(Err(result.unwrap_err()));
+            return Some(Err(error));
         }
         self.index += 1;
         Some(Ok(Method {
