@@ -60,6 +60,9 @@ impl OleTypeData {
             type_attr,
         })
     }
+    pub fn attribs(&self) -> &TYPEATTR {
+        unsafe{self.type_attr.as_ref()}
+    }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
         ole_docinfo_from_type(
@@ -158,8 +161,7 @@ impl OleTypeData {
     fn ole_type_impl_ole_types(&self, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
         let mut types = vec![];
     
-        let referenced_types =
-            ReferencedTypes::new(self.typeinfo(), unsafe{self.type_attr.as_ref()}, 0);
+        let referenced_types = ReferencedTypes::from_type(self);
         for referenced_type in referenced_types {
             if let Ok(referenced_type) = referenced_type {
                 if referenced_type.matches(implflags) {

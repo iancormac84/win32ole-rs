@@ -7,6 +7,8 @@ use windows::{
     },
 };
 
+use crate::{OleTypeData, util::ole::TypeRef};
+
 pub struct TypeInfos<'a> {
     typelib: &'a ITypeLib,
     count: u32,
@@ -143,6 +145,9 @@ impl<'a> ReferencedTypes<'a> {
             method_index,
         }
     }
+    pub fn from_type(ole_type: &'a OleTypeData) -> Self {
+        ReferencedTypes::new(ole_type.typeinfo(), ole_type.attribs(), 0)
+    }
 }
 
 impl<'a> Iterator for ReferencedTypes<'a> {
@@ -190,6 +195,10 @@ impl Method {
     }
     pub fn deconstruct(self) -> (ITypeInfo, NonNull<FUNCDESC>, BSTR) {
         (self.typeinfo, self.func_desc, self.bstrname)
+    }
+    pub fn invkind_matches(&self, mask: i32) -> bool {
+        let invkind = unsafe { self.func_desc.as_ref().invkind.0 };
+        invkind & mask != 0
     }
 }
 

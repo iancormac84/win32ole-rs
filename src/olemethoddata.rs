@@ -283,51 +283,29 @@ fn ole_methods_sub(
     methods: &mut Vec<OleMethodData>,
     mask: i32,
 ) -> Result<()> {
-    let type_attr_ptr = unsafe { (*typeinfo).GetTypeAttr()? };
-    for i in 0..unsafe { (*type_attr_ptr).cFuncs } {
-        let res = unsafe { (*typeinfo).GetFuncDesc(i as u32) };
-        match res {
-            Err(_) => continue,
-            Ok(funcdesc) => {
-                let mut bstrname = BSTR::default();
-                let res = unsafe {
-                    (*typeinfo).GetDocumentation(
-                        (*funcdesc).memid,
-                        Some(&mut bstrname),
-                        None,
-                        ptr::null_mut(),
-                        None,
-                    )
+    let methods_iter = Methods::new(typeinfo)?;
+    for (i, method) in methods_iter.enumerate() {
+        if let Ok(method) = method {
+            if method.invkind_matches(mask) {
+                let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
+                    let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
+                    let type_attr = NonNull::new(type_attr).unwrap();
+                    Some(type_attr)
+                } else {
+                    None
                 };
-                if res.is_err() {
-                    unsafe { (*typeinfo).ReleaseFuncDesc(funcdesc) };
-                    continue;
-                }
-                if unsafe { (*funcdesc).invkind.0 } & mask != 0 {
-                    let func_desc = NonNull::new(funcdesc);
-                    if let Some(func_desc) = func_desc {
-                        let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
-                            let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
-                            let type_attr = NonNull::new(type_attr).unwrap();
-                            Some(type_attr)
-                        } else {
-                            None
-                        };
-                        methods.push(OleMethodData {
-                            owner_typeinfo: owner_typeinfo.cloned(),
-                            owner_type_attr,
-                            typeinfo: typeinfo.clone(),
-                            name: bstrname.to_string(),
-                            index: i as u32,
-                            func_desc,
-                            parent: PhantomData,
-                        });
-                    }
-                }
-                unsafe { (*typeinfo).ReleaseFuncDesc(funcdesc) };
+                let (typeinfo, func_desc, bstrname) = method.deconstruct();
+                methods.push(OleMethodData {
+                    owner_typeinfo: owner_typeinfo.cloned(),
+                    owner_type_attr,
+                    typeinfo,
+                    name: bstrname.to_string(),
+                    index: i as u32,
+                    func_desc,
+                    parent: PhantomData,
+                });
             }
         }
     }
-    unsafe { (*typeinfo).ReleaseTypeAttr(type_attr_ptr) };
     Ok(())
 }
