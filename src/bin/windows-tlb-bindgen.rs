@@ -81,7 +81,7 @@ where
                     Ok(disp_type_info) => {
                         build_result
                             .skipped_dispinterface_of_dual_interfaces
-                            .push(format!("{}", typeinfo.name()));
+                            .push(typeinfo.name().to_string());
                         disp_type_info
                     }
                     Err(error) => match error {
@@ -110,7 +110,7 @@ where
                         let member = member?;
 
                         write!(out, "    {} = ", sanitize_reserved(member.name()))?;
-                        let value = member.value();
+                        let value = member.variant();
                         match (*value).Anonymous.Anonymous.vt {
                             VT_I4 => {
                                 let value = (*value).Anonymous.Anonymous.Anonymous.lVal;
@@ -925,43 +925,43 @@ fn vartype_mutator(
     typeinfo: &OleTypeData,
 ) -> (VARENUM, String) {
     match type_.vt {
-        vt @ VT_I2 => (vt, format!(".iVal_mut() = {}", param_name)),
-        vt @ VT_I4 => (vt, format!(".lVal_mut() = {}", param_name)),
-        vt @ VT_CY => (vt, format!(".cyVal_mut() = {}", param_name)),
-        vt @ VT_BSTR => (vt, format!(".bstrVal_mut() = {}", param_name)),
-        vt @ VT_DISPATCH => (vt, format!(".pdispVal_mut() = {}", param_name)),
-        vt @ VT_ERROR => (vt, format!(".scode_mut() = {}", param_name)),
-        vt @ VT_BOOL => (vt, format!(".boolVal_mut() = {}", param_name)),
+        vt @ VT_I2 => (vt, format!(".Anonymous.Anonymous.Anonymous.iVal = {}", param_name)),
+        vt @ VT_I4 => (vt, format!(".Anonymous.Anonymous.Anonymous.lVal = {}", param_name)),
+        vt @ VT_CY => (vt, format!(".Anonymous.Anonymous.Anonymous.cyVal = {}", param_name)),
+        vt @ VT_BSTR => (vt, format!(".Anonymous.Anonymous.Anonymous.bstrVal = {}", param_name)),
+        vt @ VT_DISPATCH => (vt, format!(".Anonymous.Anonymous.Anonymous.pdispVal = {}", param_name)),
+        vt @ VT_ERROR => (vt, format!(".Anonymous.Anonymous.Anonymous.scode = {}", param_name)),
+        vt @ VT_BOOL => (vt, format!(".Anonymous.Anonymous.Anonymous.boolVal = {}", param_name)),
         vt @ VT_VARIANT => (vt, format!(" = *(&{} as *const _ as *mut _)", param_name)),
-        vt @ VT_UNKNOWN => (vt, format!(".punkVal_mut() = {}", param_name)),
-        vt @ VT_UI2 => (vt, format!(".uiVal_mut() = {}", param_name)),
-        vt @ VT_UI4 => (vt, format!(".ulVal_mut() = {}", param_name)),
-        vt @ VT_INT => (vt, format!(".intVal_mut() = {}", param_name)),
-        vt @ VT_UINT => (vt, format!(".uintVal_mut() = {}", param_name)),
+        vt @ VT_UNKNOWN => (vt, format!(".Anonymous.Anonymous.Anonymous.punkVal = {}", param_name)),
+        vt @ VT_UI2 => (vt, format!(".Anonymous.Anonymous.Anonymous.uiVal = {}", param_name)),
+        vt @ VT_UI4 => (vt, format!(".Anonymous.Anonymous.Anonymous.ulVal = {}", param_name)),
+        vt @ VT_INT => (vt, format!(".Anonymous.Anonymous.Anonymous.intVal = {}", param_name)),
+        vt @ VT_UINT => (vt, format!(".Anonymous.Anonymous.Anonymous.uintVal = {}", param_name)),
         VT_PTR => {
             let pointee_vt = unsafe { (*type_.Anonymous.lptdesc).vt };
             match pointee_vt {
                 VT_I4 => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".plVal_mut() = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.plVal = {}", param_name),
                 ),
                 VT_BSTR => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".pbstrVal_mut() = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.pbstrVal = {}", param_name),
                 ),
                 VT_DISPATCH => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".ppdispVal_mut() = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.ppdispVal = {}", param_name),
                 ),
                 VT_BOOL => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".pboolVal_mut() = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.pboolVal = {}", param_name),
                 ),
                 VT_VARIANT => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".pvarval_mut() = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.pvarval = {}", param_name),
                 ),
-                VT_USERDEFINED => (VT_DISPATCH, format!(".pdispVal_mut() = {}", param_name)),
+                VT_USERDEFINED => (VT_DISPATCH, format!(".Anonymous.Anonymous.Anonymous.pdispVal = {}", param_name)),
                 _ => unreachable!(),
             }
         }
@@ -971,7 +971,7 @@ fn vartype_mutator(
                 .unwrap();
             let size = ref_type.attribs().cbSizeInstance;
             match size {
-                4 => (VT_I4, format!(".lVal_mut() = {}", param_name)), // enum
+                4 => (VT_I4, format!(".Anonymous.Anonymous.Anonymous.lVal = {}", param_name)), // enum
                 _ => unreachable!(),
             }
         }

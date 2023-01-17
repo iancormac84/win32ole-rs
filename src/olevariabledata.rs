@@ -44,7 +44,7 @@ impl OleVariableData {
     pub fn name(&self) -> &str {
         &self.name
     }
-    pub fn value(&self) -> *mut VARIANT {
+    pub fn variant(&self) -> *mut VARIANT {
         unsafe { self.var_desc.as_ref().Anonymous.lpvarValue }
     }
     pub fn ole_type(&self) -> String {
@@ -63,7 +63,7 @@ impl OleVariableData {
         visible
     }
     pub fn variable_kind(&self) -> &str {
-        match unsafe { (self.var_desc.as_ref()).varkind } {
+        match self.varkind() {
             VAR_PERINSTANCE => "PERINSTANCE",
             VAR_STATIC => "STATIC",
             VAR_CONST => "CONSTANT",

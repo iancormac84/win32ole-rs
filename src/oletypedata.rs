@@ -128,13 +128,7 @@ impl OleTypeData {
     }
     pub fn variables(&self) -> Vec<Result<OleVariableData>> {
         let vars = Variables::new(self.typeinfo(), self.attribs());
-        let variables = vars
-            .map(|var| match var {
-                Ok(var) => Ok(var),
-                Err(error) => Err(error.into()),
-            })
-            .collect();
-        variables
+        vars.collect()
     }
     pub fn src_type(&self) -> Option<String> {
         if unsafe { self.type_attr.as_ref().typekind } != TKIND_ALIAS {
@@ -186,8 +180,7 @@ impl OleTypeData {
     pub fn get_interface_of_dispinterface(&self) -> Result<OleTypeData> {
         let ref_type = unsafe { self.typeinfo.GetRefTypeOfImplType((-1i32) as u32)? };
         let typeinfo = unsafe { self.typeinfo.GetRefTypeInfo(ref_type)? };
-        let result = OleTypeData::try_from(typeinfo);
-        result
+        OleTypeData::try_from(typeinfo)
     }
 }
 
