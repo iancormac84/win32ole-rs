@@ -1,3 +1,4 @@
+use clap::{arg, command, Parser};
 use win32ole::{error::Error, ole_initialized, types::TypeInfos, OleTypeData, TypeRef};
 use windows::{
     core::PCWSTR,
@@ -65,7 +66,7 @@ where
             let typeinfo = match typeinfo {
                 Ok(typeinfo) => OleTypeData::try_from(typeinfo)?,
                 Err(error) => {
-                    if error == windows::core::Error::from(TYPE_E_CANTLOADLIBRARY).into() {
+                    if error == windows::core::Error::from(TYPE_E_CANTLOADLIBRARY) {
                         build_result.num_types_not_found += 1;
                         continue;
                     } else {
@@ -104,50 +105,53 @@ where
 
             match attributes.typekind {
                 TKIND_ENUM => {
-                    writeln!(out, "ENUM!{{enum {} {{", type_name)?;
+                    let type_name = type_name.replace("tag", "");
+                    write!(out, "pub struct {type_name}(pub ")?;
 
-                    for member in typeinfo.variables() {
+                    for (count, member) in typeinfo.variables().into_iter().enumerate() {
                         let member = member?;
-
-                        write!(out, "    {} = ", sanitize_reserved(member.name()))?;
                         let value = member.variant();
-                        match (*value).Anonymous.Anonymous.vt {
-                            VT_I4 => {
-                                let value = (*value).Anonymous.Anonymous.Anonymous.lVal;
-                                if value >= 0 {
-                                    writeln!(out, "{},", value)?;
-                                } else {
-                                    writeln!(out, "0x{:08x},", value)?;
-                                }
-                            }
-                            _ => unreachable!(),
+                        let wkt_str = well_known_type_to_string((*value).Anonymous.Anonymous.vt);
+                        if count == 0 {
+                            writeln!(out, "{});", wkt_str)?;
                         }
+                        let real_value = match (*value).Anonymous.Anonymous.vt {
+                            VT_I4 => (*value).Anonymous.Anonymous.Anonymous.lVal,
+                            _ => unreachable!(),
+                        };
+
+                        write!(
+                            out,
+                            "pub const {}: {type_name} = {type_name}({real_value}{wkt_str});\n",
+                            member.name()
+                        )?;
                     }
 
-                    writeln!(out, "}}}}")?;
                     writeln!(out)?;
                 }
 
                 TKIND_RECORD => {
-                    writeln!(out, "STRUCT!{{struct {} {{", type_name)?;
+                    let type_name = type_name.replace("tag", "");
+                    writeln!(out, "#[repr(C)]\npub struct {type_name} {{")?;
 
+                    let mut debug_str = format!("impl ::core::fmt::Debug for {type_name} {{\n    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {{\n        f.debug_struct({type_name:?})");
                     for field in typeinfo.variables() {
                         let field = field?;
-
-                        writeln!(
-                            out,
-                            "    {}: {},",
-                            sanitize_reserved(field.name()),
-                            type_to_string(
-                                field.typedesc(),
-                                PARAMFLAG_FOUT,
-                                &typeinfo,
-                                &mut build_result
-                            )?
+                        let type_string = type_to_string(
+                            field.typedesc(),
+                            PARAMFLAG_FOUT,
+                            &typeinfo,
+                            &mut build_result,
                         )?;
+                        let field_name = sanitize_reserved(field.name());
+                        writeln!(out, "    pub {field_name}: {type_string},")?;
+                        let f = format!(".field({field_name:?}, &self.{field_name})");
+                        debug_str.push_str(&f);
                     }
+                    debug_str.push_str(".finish()\n    }\n}\n");
 
-                    writeln!(out, "}}}}")?;
+                    writeln!(out, "}}")?;
+                    writeln!(out, "impl ::core::marker::Copy for {type_name} {{}}\nimpl ::core::clone::Clone for {type_name} {{\n    fn clone(&self) -> Self {{\n        *self\n    }}\n}}\n{debug_str}unsafe impl ::windows::core::Abi for {type_name} {{\n    type Abi = Self;\n}}")?;
                     writeln!(out)?;
                 }
 
@@ -159,34 +163,28 @@ where
 
                         let function_name = function.name();
 
-                        writeln!(out, r#"extern "system" pub fn {}("#, function_name)?;
+                        writeln!(out, r#"extern "system" pub fn {function_name}("#)?;
 
                         for param in function.params() {
                             let param = param?;
                             let param_desc = param.typedesc();
-                            writeln!(
-                                out,
-                                "    {}: {},",
-                                sanitize_reserved(param.name()),
-                                type_to_string(
-                                    param_desc,
-                                    param.flags(),
-                                    &typeinfo,
-                                    &mut build_result
-                                )?
+                            let param_name = sanitize_reserved(param.name());
+                            let type_string = type_to_string(
+                                param_desc,
+                                param.flags(),
+                                &typeinfo,
+                                &mut build_result,
                             )?;
+                            writeln!(out, "    {param_name}: {type_string},")?;
                         }
 
-                        writeln!(
-                            out,
-                            ") -> {},",
-                            type_to_string(
-                                &function_desc.elemdescFunc.tdesc,
-                                PARAMFLAG_FOUT,
-                                &typeinfo,
-                                &mut build_result
-                            )?
+                        let type_string = type_to_string(
+                            &function_desc.elemdescFunc.tdesc,
+                            PARAMFLAG_FOUT,
+                            &typeinfo,
+                            &mut build_result,
                         )?;
+                        writeln!(out, ") -> {type_string},")?;
                         writeln!(out)?;
                     }
 
@@ -194,11 +192,11 @@ where
                 }
 
                 TKIND_INTERFACE => {
-                    writeln!(out, "RIDL!{{#[uuid(0x{:08x}, 0x{:04x}, 0x{:04x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x})]",
+                    writeln!(out, "unsafe impl ::windows::core::Interface for {type_name} {{\n    const IID: ::windows::core::GUID = ::windows::core::GUID::from_u128(0x{:08x}_{:04x}_{:04x}_{:02x}{:02x}_{:02x}{:02x}{:02x}{:02x}{:02x}{:02x});\n}}",
 						attributes.guid.data1, attributes.guid.data2, attributes.guid.data3,
 						attributes.guid.data4[0], attributes.guid.data4[1], attributes.guid.data4[2], attributes.guid.data4[3],
 						attributes.guid.data4[4], attributes.guid.data4[5], attributes.guid.data4[6], attributes.guid.data4[7])?;
-                    write!(out, "interface {}({}Vtbl)", type_name, type_name)?;
+                    write!(out, "interface {type_name}({type_name}Vtbl)")?;
 
                     let mut have_parents = false;
                     let mut parents_vtbl_size = 0;
@@ -207,9 +205,9 @@ where
                         let parent_name = parent.name();
 
                         if have_parents {
-                            write!(out, ", {}({}Vtbl)", parent_name, parent_name)?;
+                            write!(out, ", {parent_name}({parent_name}Vtbl)")?;
                         } else {
-                            write!(out, ": {}({}Vtbl)", parent_name, parent_name)?;
+                            write!(out, ": {parent_name}({parent_name}Vtbl)")?;
                         }
                         have_parents = true;
 
@@ -233,38 +231,32 @@ where
 
                         match function_desc.invkind {
                             INVOKE_FUNC => {
-                                writeln!(out, "    fn {}(", function_name)?;
+                                writeln!(out, "    fn {function_name}(")?;
 
                                 for param in function.params() {
                                     let param = param?;
                                     let param_desc = param.desc();
-                                    writeln!(
-                                        out,
-                                        "        {}: {},",
-                                        sanitize_reserved(param.name()),
-                                        type_to_string(
-                                            &param_desc.tdesc,
-                                            param.flags(),
-                                            &typeinfo,
-                                            &mut build_result
-                                        )?
+                                    let param_name = sanitize_reserved(param.name());
+                                    let type_string = type_to_string(
+                                        &param_desc.tdesc,
+                                        param.flags(),
+                                        &typeinfo,
+                                        &mut build_result,
                                     )?;
+                                    writeln!(out, "        {param_name}: {type_string},")?;
                                 }
 
-                                writeln!(
-                                    out,
-                                    "    ) -> {},",
-                                    type_to_string(
-                                        &function_desc.elemdescFunc.tdesc,
-                                        PARAMFLAG_FOUT,
-                                        &typeinfo,
-                                        &mut build_result
-                                    )?
+                                let type_string = type_to_string(
+                                    &function_desc.elemdescFunc.tdesc,
+                                    PARAMFLAG_FOUT,
+                                    &typeinfo,
+                                    &mut build_result,
                                 )?;
+                                writeln!(out, "    ) -> {type_string},")?;
                             }
 
                             INVOKE_PROPERTYGET => {
-                                writeln!(out, "    fn get_{}(", function_name)?;
+                                writeln!(out, "    fn get_{function_name}(")?;
 
                                 let mut explicit_ret_val = false;
 
@@ -371,7 +363,7 @@ where
 
                         let property_name = sanitize_reserved(property.name());
 
-                        writeln!(out, "    fn get_{}(", property_name)?;
+                        writeln!(out, "    fn get_{property_name}(")?;
                         writeln!(
                             out,
                             "        value: *mut {},",
@@ -383,7 +375,7 @@ where
                             )?
                         )?;
                         writeln!(out, "    ) -> {},", well_known_type_to_string(VT_HRESULT))?;
-                        writeln!(out, "    fn put_{}(", property_name)?;
+                        writeln!(out, "    fn put_{property_name}(")?;
                         writeln!(
                             out,
                             "        value: {},",
@@ -405,18 +397,17 @@ where
                     if !emit_dispinterfaces {
                         build_result
                             .skipped_dispinterfaces
-                            .push(format!("{}", typeinfo.name()));
+                            .push(typeinfo.name().to_string());
                         continue;
                     }
 
-                    writeln!(out, "RIDL!{{#[uuid(0x{:08x}, 0x{:04x}, 0x{:04x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x})]",
+                    writeln!(out, "unsafe impl ::windows::core::Interface for {type_name} {{\n    const IID: ::windows::core::GUID = ::windows::core::GUID::from_u128(0x{:08x}_{:04x}_{:04x}_{:02x}{:02x}_{:02x}{:02x}{:02x}{:02x}{:02x}{:02x});\n}}",
 						attributes.guid.data1, attributes.guid.data2, attributes.guid.data3,
 						attributes.guid.data4[0], attributes.guid.data4[1], attributes.guid.data4[2], attributes.guid.data4[3],
 						attributes.guid.data4[4], attributes.guid.data4[5], attributes.guid.data4[6], attributes.guid.data4[7])?;
                     writeln!(
                         out,
-                        "interface {}({}Vtbl): IDispatch(IDispatchVtbl) {{",
-                        type_name, type_name
+                        "interface {type_name}({type_name}Vtbl): IDispatch(IDispatchVtbl) {{"
                     )?;
                     writeln!(out, "}}}}")?;
 
@@ -438,7 +429,7 @@ where
                     }
 
                     writeln!(out)?;
-                    writeln!(out, "impl {} {{", type_name)?;
+                    writeln!(out, "impl {type_name} {{")?;
 
                     // IFaxServerNotify2 lists QueryInterface, etc
                     let has_inherited_functions = typeinfo
@@ -508,7 +499,7 @@ where
                                         &sanitize_reserved(param.name()),
                                         &typeinfo,
                                     );
-                                    writeln!(out, "            {{ let mut v: VARIANT = ::core::mem::uninitialized(); VariantInit(&mut v); *v.vt_mut() = {}; *v{}; v }},", vt.0, mutator)?;
+                                    writeln!(out, "            {{ let mut v = VARIANT::default(); (*v).Anonymous.Anonymous.vt = VARENUM({}); (*v){}; v }},", vt.0, mutator)?;
                                 }
                             }
 
@@ -523,15 +514,11 @@ where
                             writeln!(out)?;
                         }
 
-                        writeln!(
-                            out,
-                            "        let mut result: VARIANT = ::core::mem::uninitialized();"
-                        )?;
-                        writeln!(out, "        VariantInit(&mut result);")?;
+                        writeln!(out, "        let mut result = VARIANT::default();")?;
                         writeln!(out)?;
                         writeln!(
                             out,
-                            "        let mut exception_info: EXCEPINFO = ::core::mem::zeroed();"
+                            "        let mut exception_info = EXCEPINFO::default();"
                         )?;
                         writeln!(out)?;
                         writeln!(out, "        let mut error_arg: UINT = 0;")?;
@@ -606,17 +593,13 @@ where
                         let property_name = sanitize_reserved(property.name());
                         let type_ = property.typedesc();
 
-                        writeln!(out, "    pub unsafe fn get_{}(", property_name)?;
+                        writeln!(out, "    pub unsafe fn get_{property_name}(")?;
                         writeln!(out, "    ) -> (HRESULT, VARIANT, EXCEPINFO, UINT) {{")?;
-                        writeln!(
-                            out,
-                            "        let mut result: VARIANT = ::core::mem::uninitialized();"
-                        )?;
-                        writeln!(out, "        VariantInit(&mut result);")?;
+                        writeln!(out, "        let mut result = VARIANT::default();")?;
                         writeln!(out)?;
                         writeln!(
                             out,
-                            "        let mut exception_info: EXCEPINFO = ::core::mem::zeroed();"
+                            "        let mut exception_info = EXCEPINFO::default();"
                         )?;
                         writeln!(out)?;
                         writeln!(out, "        let mut error_arg: UINT = 0;")?;
@@ -650,7 +633,7 @@ where
                         writeln!(out, "        (hr, result, exception_info, error_arg)")?;
                         writeln!(out, "    }}")?;
                         writeln!(out)?;
-                        writeln!(out, "    pub unsafe fn put_{}(", property_name)?;
+                        writeln!(out, "    pub unsafe fn put_{property_name}(")?;
                         writeln!(
                             out,
                             "        value: {},",
@@ -664,18 +647,14 @@ where
                         writeln!(out, "    ) -> (HRESULT, VARIANT, EXCEPINFO, UINT) {{")?;
                         writeln!(out, "        let mut args: [VARIANT; 1] = [")?;
                         let (vt, mutator) = vartype_mutator(type_, "value", &typeinfo);
-                        writeln!(out, "            {{ let mut v: VARIANT = ::core::mem::uninitialized(); VariantInit(&mut v); *v.vt_mut() = {}; *v{}; v }},", vt.0, mutator)?;
+                        writeln!(out, "            {{ let mut v = VARIANT::default(); (*v).Anonymous.Anonymous.vt = VARENUM({}); (*v){}; v }},", vt.0, mutator)?;
                         writeln!(out, "        ];")?;
                         writeln!(out)?;
-                        writeln!(
-                            out,
-                            "        let mut result: VARIANT = ::core::mem::uninitialized();"
-                        )?;
-                        writeln!(out, "        VariantInit(&mut result);")?;
+                        writeln!(out, "        let mut result = VARIANT::default();")?;
                         writeln!(out)?;
                         writeln!(
                             out,
-                            "        let mut exception_info: EXCEPINFO = ::core::mem::zeroed();"
+                            "        let mut exception_info = EXCEPINFO::default();"
                         )?;
                         writeln!(out)?;
                         writeln!(out, "        let mut error_arg: UINT = 0;")?;
@@ -719,29 +698,25 @@ where
                 TKIND_COCLASS => {
                     for parent in typeinfo.implemented_ole_types()? {
                         let parent_name = parent.name();
-                        writeln!(out, "// Implements {}", parent_name)?;
+                        writeln!(out, "// Implements {parent_name}")?;
                     }
 
-                    writeln!(out, "RIDL!{{#[uuid(0x{:08x}, 0x{:04x}, 0x{:04x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x}, 0x{:02x})]",
+                    writeln!(out, "unsafe impl ::windows::core::Interface for {type_name} {{\n    const IID: ::windows::core::GUID = ::windows::core::GUID::from_u128(0x{:08x}_{:04x}_{:04x}_{:02x}{:02x}_{:02x}{:02x}{:02x}{:02x}{:02x}{:02x});\n}}",
 						attributes.guid.data1, attributes.guid.data2, attributes.guid.data3,
 						attributes.guid.data4[0], attributes.guid.data4[1], attributes.guid.data4[2], attributes.guid.data4[3],
 						attributes.guid.data4[4], attributes.guid.data4[5], attributes.guid.data4[6], attributes.guid.data4[7])?;
-                    writeln!(out, "class {}; }}", type_name)?;
+                    writeln!(out, "class {type_name}; }}")?;
                     writeln!(out)?;
                 }
 
                 TKIND_ALIAS => {
-                    writeln!(
-                        out,
-                        "pub type {} = {};",
-                        type_name,
-                        type_to_string(
-                            &attributes.tdescAlias,
-                            PARAMFLAG_FOUT,
-                            &typeinfo,
-                            &mut build_result
-                        )?
+                    let type_string = type_to_string(
+                        &attributes.tdescAlias,
+                        PARAMFLAG_FOUT,
+                        &typeinfo,
+                        &mut build_result,
                     )?;
+                    writeln!(out, "pub type {type_name} = {type_string};")?;
                     writeln!(out)?;
                 }
 
@@ -758,11 +733,11 @@ where
                     assert!(num_aligned_elements > 0);
                     let wrapped_type = match num_aligned_elements {
                         1 => alignment.to_string(),
-                        _ => format!("[{}; {}]", alignment, num_aligned_elements),
+                        _ => format!("[{alignment}; {num_aligned_elements}]"),
                     };
 
-                    writeln!(out, "UNION2!{{union {} {{", type_name)?;
-                    writeln!(out, "    {},", wrapped_type)?;
+                    writeln!(out, "UNION2!{{union {type_name} {{")?;
+                    writeln!(out, "    {wrapped_type},")?;
 
                     for field in typeinfo.variables() {
                         let field = field?;
@@ -828,7 +803,7 @@ fn type_to_string(
                     typeinfo,
                     build_result,
                 )
-                .map(|type_name| format!("*const {}", type_name))
+                .map(|type_name| format!("*const {type_name}"))
             } else {
                 // [in, out] => *mut
                 // [] => *mut (Some functions like IXMLError::GetErrorInfo don't annotate [out] on their out parameter)
@@ -838,7 +813,7 @@ fn type_to_string(
                     typeinfo,
                     build_result,
                 )
-                .map(|type_name| format!("*mut {}", type_name))
+                .map(|type_name| format!("*mut {type_name}"))
             }
         }
 
@@ -876,7 +851,7 @@ fn type_to_string(
                         build_result.num_types_not_found += 1;
                         Ok("__missing_type__".to_string())
                     } else {
-                        Err(error.into())
+                        Err(error)
                     }
                 }
                 _ => Err(error),
@@ -895,12 +870,12 @@ fn well_known_type_to_string(vt: VARENUM) -> &'static str {
         VT_R8 => "f64",
         VT_CY => "CY",
         VT_DATE => "f64",
-        VT_BSTR => "BSTR",
+        VT_BSTR => "::windows::core::PWSTR",
         VT_DISPATCH => "IDispatch",
         VT_ERROR => "i32",
         VT_BOOL => "VARIANT_BOOL",
         VT_VARIANT => "VARIANT",
-        VT_UNKNOWN => "IUnknown",
+        VT_UNKNOWN => "::windows::core::IUnknown",
         VT_DECIMAL => "DECIMAL",
         VT_I1 => "i8",
         VT_UI1 => "u8",
@@ -911,10 +886,10 @@ fn well_known_type_to_string(vt: VARENUM) -> &'static str {
         VT_INT => "i32",
         VT_UINT => "u32",
         VT_VOID => "c_void",
-        VT_HRESULT => "HRESULT",
+        VT_HRESULT => "::windows::core::HRESULT",
         VT_SAFEARRAY => "SAFEARRAY",
-        VT_LPSTR => "PCSTR",
-        VT_LPWSTR => "PCWSTR",
+        VT_LPSTR => "::windows::core::PSTR",
+        VT_LPWSTR => "::windows::core::PWSTR",
         _ => unreachable!(),
     }
 }
@@ -925,43 +900,82 @@ fn vartype_mutator(
     typeinfo: &OleTypeData,
 ) -> (VARENUM, String) {
     match type_.vt {
-        vt @ VT_I2 => (vt, format!(".Anonymous.Anonymous.Anonymous.iVal = {}", param_name)),
-        vt @ VT_I4 => (vt, format!(".Anonymous.Anonymous.Anonymous.lVal = {}", param_name)),
-        vt @ VT_CY => (vt, format!(".Anonymous.Anonymous.Anonymous.cyVal = {}", param_name)),
-        vt @ VT_BSTR => (vt, format!(".Anonymous.Anonymous.Anonymous.bstrVal = {}", param_name)),
-        vt @ VT_DISPATCH => (vt, format!(".Anonymous.Anonymous.Anonymous.pdispVal = {}", param_name)),
-        vt @ VT_ERROR => (vt, format!(".Anonymous.Anonymous.Anonymous.scode = {}", param_name)),
-        vt @ VT_BOOL => (vt, format!(".Anonymous.Anonymous.Anonymous.boolVal = {}", param_name)),
-        vt @ VT_VARIANT => (vt, format!(" = *(&{} as *const _ as *mut _)", param_name)),
-        vt @ VT_UNKNOWN => (vt, format!(".Anonymous.Anonymous.Anonymous.punkVal = {}", param_name)),
-        vt @ VT_UI2 => (vt, format!(".Anonymous.Anonymous.Anonymous.uiVal = {}", param_name)),
-        vt @ VT_UI4 => (vt, format!(".Anonymous.Anonymous.Anonymous.ulVal = {}", param_name)),
-        vt @ VT_INT => (vt, format!(".Anonymous.Anonymous.Anonymous.intVal = {}", param_name)),
-        vt @ VT_UINT => (vt, format!(".Anonymous.Anonymous.Anonymous.uintVal = {}", param_name)),
+        vt @ VT_I2 => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.iVal = {param_name}"),
+        ),
+        vt @ VT_I4 => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.lVal = {param_name}"),
+        ),
+        vt @ VT_CY => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.cyVal = {param_name}"),
+        ),
+        vt @ VT_BSTR => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.bstrVal = {param_name}"),
+        ),
+        vt @ VT_DISPATCH => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.pdispVal = {param_name}"),
+        ),
+        vt @ VT_ERROR => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.scode = {param_name}"),
+        ),
+        vt @ VT_BOOL => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.boolVal = {param_name}"),
+        ),
+        vt @ VT_VARIANT => (vt, format!(" = *(&{param_name} as *const _ as *mut _)")),
+        vt @ VT_UNKNOWN => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.punkVal = {param_name}"),
+        ),
+        vt @ VT_UI2 => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.uiVal = {param_name}"),
+        ),
+        vt @ VT_UI4 => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.ulVal = {param_name}"),
+        ),
+        vt @ VT_INT => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.intVal = {param_name}"),
+        ),
+        vt @ VT_UINT => (
+            vt,
+            format!(".Anonymous.Anonymous.Anonymous.uintVal = {param_name}"),
+        ),
         VT_PTR => {
             let pointee_vt = unsafe { (*type_.Anonymous.lptdesc).vt };
             match pointee_vt {
                 VT_I4 => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".Anonymous.Anonymous.Anonymous.plVal = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.plVal = {param_name}"),
                 ),
                 VT_BSTR => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".Anonymous.Anonymous.Anonymous.pbstrVal = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.pbstrVal = {param_name}"),
                 ),
                 VT_DISPATCH => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".Anonymous.Anonymous.Anonymous.ppdispVal = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.ppdispVal = {param_name}"),
                 ),
                 VT_BOOL => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".Anonymous.Anonymous.Anonymous.pboolVal = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.pboolVal = {param_name}"),
                 ),
                 VT_VARIANT => (
                     VARENUM(pointee_vt.0 | VT_BYREF.0),
-                    format!(".Anonymous.Anonymous.Anonymous.pvarval = {}", param_name),
+                    format!(".Anonymous.Anonymous.Anonymous.pvarval = {param_name}"),
                 ),
-                VT_USERDEFINED => (VT_DISPATCH, format!(".Anonymous.Anonymous.Anonymous.pdispVal = {}", param_name)),
+                VT_USERDEFINED => (
+                    VT_DISPATCH,
+                    format!(".Anonymous.Anonymous.Anonymous.pdispVal = {param_name}"),
+                ),
                 _ => unreachable!(),
             }
         }
@@ -971,7 +985,10 @@ fn vartype_mutator(
                 .unwrap();
             let size = ref_type.attribs().cbSizeInstance;
             match size {
-                4 => (VT_I4, format!(".Anonymous.Anonymous.Anonymous.lVal = {}", param_name)), // enum
+                4 => (
+                    VT_I4,
+                    format!(".Anonymous.Anonymous.Anonymous.lVal = {param_name}"),
+                ), // enum
                 _ => unreachable!(),
             }
         }
@@ -979,27 +996,23 @@ fn vartype_mutator(
     }
 }
 
-#[derive(structopt::StructOpt)]
+/// Capture typelib path and emit Rust code to bind to the interfaces defined in the typelib. Optionally emit code for DISPINTERFACES
+#[derive(Parser)]
+#[command(name = "Options")]
 struct Options {
-    #[structopt(help = "path of typelib")]
+    /// path of typelib
     filename: std::path::PathBuf,
-
-    #[structopt(
-        long = "emit-dispinterfaces",
-        help = "emit code for DISPINTERFACEs (experimental)"
-    )]
+    /// emit code for DISPINTERFACEs (experimental)
+    #[arg(long)]
     emit_dispinterfaces: bool,
 }
 
 fn main() {
-    let Options {
-        filename,
-        emit_dispinterfaces,
-    } = structopt::StructOpt::from_args();
+    let args = Options::parse();
 
     let build_result = {
         let stdout = std::io::stdout();
-        build(&filename, emit_dispinterfaces, stdout.lock()).unwrap()
+        build(&args.filename, args.emit_dispinterfaces, stdout.lock()).unwrap()
     };
 
     if build_result.num_missing_types > 0 {
@@ -1018,15 +1031,11 @@ fn main() {
 
     for skipped_dispinterface in build_result.skipped_dispinterfaces {
         eprintln!(
-            "Dispinterface {} was skipped because --emit-dispinterfaces was not specified",
-            skipped_dispinterface
+            "Dispinterface {skipped_dispinterface} was skipped because --emit-dispinterfaces was not specified"
         );
     }
 
     for skipped_dispinterface in build_result.skipped_dispinterface_of_dual_interfaces {
-        eprintln!(
-            "Dispinterface half of dual interface {} was skipped",
-            skipped_dispinterface
-        );
+        eprintln!("Dispinterface half of dual interface {skipped_dispinterface} was skipped");
     }
 }

@@ -21,4 +21,4 @@ features = [
 ]
 
 [dependencies]
-structopt = "0.3"
+clap = { version = "4", features = ["derive"] }
