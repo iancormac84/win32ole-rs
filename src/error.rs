@@ -18,7 +18,6 @@ pub enum Error {
     Utf16(FromUtf16Error),
     ParseFloat(ParseFloatError),
     FromInt(TryFromIntError),
-    FromVariant(FromVariantError),
     IntoString(IntoStringError),
     Generic(&'static str),
     Custom(String),
@@ -86,26 +85,6 @@ impl From<OleError> for Error {
     }
 }
 
-/// Encapsulates the ways converting from a `VARIANT` can fail.
-#[derive(Copy, Clone, Debug)]
-pub enum FromVariantError {
-    /// `VARIANT` pointer during conversion was null
-    VariantPtrNull,
-    /// Unknown VT for
-    UnknownVarType(u16),
-}
-
-impl fmt::Display for FromVariantError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            FromVariantError::VariantPtrNull => write!(fmt, "VARIANT pointer is null"),
-            FromVariantError::UnknownVarType(e) => {
-                write!(fmt, "VARIANT cannot be this vartype: {e}")
-            }
-        }
-    }
-}
-
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self)
@@ -148,12 +127,6 @@ impl From<TryFromIntError> for Error {
     }
 }
 
-impl From<FromVariantError> for Error {
-    fn from(err: FromVariantError) -> Error {
-        Error::FromVariant(err)
-    }
-}
-
 impl From<IntoStringError> for Error {
     fn from(err: IntoStringError) -> Self {
         Error::IntoString(err)
@@ -170,7 +143,6 @@ impl fmt::Display for Error {
             Utf16(ref err) => err.fmt(fmt),
             ParseFloat(ref err) => err.fmt(fmt),
             FromInt(ref err) => err.fmt(fmt),
-            FromVariant(ref err) => err.fmt(fmt),
             IntoString(ref err) => err.fmt(fmt),
             Generic(ref err) => err.fmt(fmt),
             Custom(ref err) => err.fmt(fmt),

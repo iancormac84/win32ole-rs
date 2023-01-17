@@ -23,7 +23,10 @@ pub use {
     oleparamdata::OleParamData,
     oletypedata::OleTypeData,
     oletypelibdata::{oletypelib_from_guid, OleTypeLibData},
-    util::conv::ToWide,
+    util::{
+        conv::ToWide,
+        ole::{ole_initialized, TypeRef},
+    },
 };
 
 static G_RUNNING_NANO: LazyLock<bool> = LazyLock::new(|| {

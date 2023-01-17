@@ -245,11 +245,13 @@ impl OleMethodData {
     pub fn size_opt_params(&self) -> i16 {
         unsafe { self.func_desc.as_ref().cParamsOpt }
     }
+    pub fn desc(&self) -> &FUNCDESC {
+        unsafe { self.func_desc.as_ref() }
+    }
 }
 
 impl Drop for OleMethodData {
     fn drop(&mut self) {
-        println!("Inside Drop for OleMethodData {}", self.name());
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }

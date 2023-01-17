@@ -126,10 +126,15 @@ impl OleTypeData {
         let typeflags = unsafe { self.type_attr.as_ref().wTypeFlags };
         typeflags & (TYPEFLAG_FHIDDEN.0 | TYPEFLAG_FRESTRICTED.0) as u16 == 0
     }
-    pub fn variables(&self) -> Result<Vec<OleVariableData>> {
+    pub fn variables(&self) -> Vec<Result<OleVariableData>> {
         let vars = Variables::new(self.typeinfo(), self.attribs());
-        let variables = vars.filter_map(|v| v.ok()).collect();
-        Ok(variables)
+        let variables = vars
+            .map(|var| match var {
+                Ok(var) => Ok(var),
+                Err(error) => Err(error.into()),
+            })
+            .collect();
+        variables
     }
     pub fn src_type(&self) -> Option<String> {
         if unsafe { self.type_attr.as_ref().typekind } != TKIND_ALIAS {
@@ -143,7 +148,6 @@ impl OleTypeData {
             INVOKE_FUNC.0 | INVOKE_PROPERTYGET.0 | INVOKE_PROPERTYPUT.0 | INVOKE_PROPERTYPUTREF.0,
         )
     }
-
     fn ole_type_impl_ole_types(&self, implflags: IMPLTYPEFLAGS) -> Result<Vec<OleTypeData>> {
         let mut types = vec![];
 
@@ -174,11 +178,21 @@ impl OleTypeData {
     pub fn name(&self) -> &str {
         &self.name
     }
+    pub fn get_ref_type_info(&self, ref_type: u32) -> Result<OleTypeData> {
+        let ref_type_info = unsafe { self.typeinfo.GetRefTypeInfo(ref_type)? };
+
+        OleTypeData::try_from(ref_type_info)
+    }
+    pub fn get_interface_of_dispinterface(&self) -> Result<OleTypeData> {
+        let ref_type = unsafe { self.typeinfo.GetRefTypeOfImplType((-1i32) as u32)? };
+        let typeinfo = unsafe { self.typeinfo.GetRefTypeInfo(ref_type)? };
+        let result = OleTypeData::try_from(typeinfo);
+        result
+    }
 }
 
 impl Drop for OleTypeData {
     fn drop(&mut self) {
-        println!("Inside Drop for OleTypeData {}", self.name());
         unsafe { self.typeinfo.ReleaseTypeAttr(self.type_attr.as_ptr()) };
     }
 }

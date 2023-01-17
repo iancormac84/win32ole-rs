@@ -1,8 +1,8 @@
 use std::ptr::NonNull;
 
 use windows::Win32::System::{
-    Com::{ITypeInfo, FUNCDESC, TYPEDESC},
-    Ole::{PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT},
+    Com::{ITypeInfo, ELEMDESC, FUNCDESC, TYPEDESC},
+    Ole::{PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT},
 };
 
 use crate::{
@@ -58,6 +58,16 @@ impl OleParamData {
         self.ole_typedesc2val(Some(&mut typedetails));
         Ok(typedetails)
     }
+    pub fn flags(&self) -> PARAMFLAGS {
+        unsafe {
+            (*(self.func_desc.as_ref())
+                .lprgelemdescParam
+                .offset(self.index as isize))
+            .Anonymous
+            .paramdesc
+            .wParamFlags
+        }
+    }
     fn ole_param_flag_mask(&self, mask: u16) -> bool {
         let ret = unsafe {
             &(*(self.func_desc.as_ref())
@@ -101,11 +111,19 @@ impl OleParamData {
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         defval
     }*/
+    pub fn desc(&self) -> &ELEMDESC {
+        unsafe {
+            &*self
+                .func_desc
+                .as_ref()
+                .lprgelemdescParam
+                .offset(self.index as isize)
+        }
+    }
 }
 
 impl Drop for OleParamData {
     fn drop(&mut self) {
-        println!("Inside Drop for OleParamData {}", self.name());
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }

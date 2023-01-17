@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use windows::Win32::System::Com::{
     ITypeInfo, TYPEDESC, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE, VARFLAG_FRESTRICTED,
-    VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
+    VARIANT, VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
 };
 
 use crate::{
@@ -44,6 +44,9 @@ impl OleVariableData {
     pub fn name(&self) -> &str {
         &self.name
     }
+    pub fn value(&self) -> *mut VARIANT {
+        unsafe { self.var_desc.as_ref().Anonymous.lpvarValue }
+    }
     pub fn ole_type(&self) -> String {
         self.ole_typedesc2val(None)
     }
@@ -71,11 +74,13 @@ impl OleVariableData {
     pub fn varkind(&self) -> VARKIND {
         unsafe { (self.var_desc.as_ref()).varkind }
     }
+    pub fn member_id(&self) -> i32 {
+        unsafe { self.var_desc.as_ref().memid }
+    }
 }
 
 impl Drop for OleVariableData {
     fn drop(&mut self) {
-        println!("Inside Drop for OleVariableData {}", self.name());
         unsafe { self.typeinfo.ReleaseVarDesc(self.var_desc.as_ptr()) };
     }
 }

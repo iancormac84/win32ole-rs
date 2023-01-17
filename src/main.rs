@@ -21,14 +21,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let ole_type_methods = ole_type.ole_methods()?;
         for (idx1, ole_type_method) in ole_type_methods.iter().enumerate() {
             let ole_type_method_name = ole_type_method.name();
-            println!(
-                "OLE type method {})    {ole_type_method_name}",
-                idx1 + 1
-            );
+            println!("OLE type method {})    {ole_type_method_name}", idx1 + 1);
             let params = ole_type_method.params();
             for param in params {
                 match param {
-                    Ok(param) => println!("        {ole_type_method_name} parameter: {}", param.name()),
+                    Ok(param) => {
+                        println!("        {ole_type_method_name} parameter: {}", param.name())
+                    }
                     Err(error) => println!("        Error: {error}"),
                 }
             }
@@ -49,9 +48,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let variables = excel_xl_sheet_type.variables()?;
+    let variables = excel_xl_sheet_type.variables();
     for (idx, variable) in variables.iter().enumerate() {
-        println!("    OLE type variable {}) {}", idx + 1, variable.name());
+        match variable {
+            Ok(variable) => println!("    OLE type variable {}) {}", idx + 1, variable.name()),
+            Err(error) => println!("    OLE type variable error {}, {error}", idx + 1),
+        }
     }
     Ok(())
 }
