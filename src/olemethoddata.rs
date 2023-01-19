@@ -15,8 +15,8 @@ use std::{
 use windows::{
     core::{BSTR, PCWSTR},
     Win32::System::Com::{
-        ITypeInfo, FUNCDESC, FUNCKIND, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-        INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR, TYPEDESC, VARENUM,
+        ITypeInfo, FUNCDESC, FUNCKIND, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET,
+        INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR, TYPEDESC, VARENUM,
     },
 };
 
@@ -151,6 +151,9 @@ impl OleMethodData {
     }
     pub fn return_type(&self) -> String {
         self.ole_typedesc2val(None)
+    }
+    pub fn return_type_typedesc(&self) -> &TYPEDESC {
+        unsafe { &self.func_desc.as_ref().elemdescFunc.tdesc }
     }
     pub fn return_vtype(&self) -> VARENUM {
         unsafe { self.func_desc.as_ref().elemdescFunc.tdesc.vt }

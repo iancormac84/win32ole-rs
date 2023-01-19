@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use windows::Win32::System::{
     Com::{ITypeInfo, ELEMDESC, FUNCDESC, TYPEDESC},
-    Ole::{PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT},
+    Ole::{PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT, PARAMFLAG_FRETVAL},
 };
 
 use crate::{
@@ -70,7 +70,7 @@ impl OleParamData {
     }
     fn ole_param_flag_mask(&self, mask: u16) -> bool {
         let paramflags = self.param_flags();
-        paramflags & mask != 0;
+        paramflags & PARAMFLAGS(mask) != PARAMFLAGS(0)
     }
     pub fn input(&self) -> bool {
         self.ole_param_flag_mask(PARAMFLAG_FIN.0)
@@ -82,7 +82,7 @@ impl OleParamData {
         self.ole_param_flag_mask(PARAMFLAG_FOPT.0)
     }
     pub fn retval(&self) -> bool {
-        self.ole_param_flag_mask(PARAMFLAG_FOPT.0)
+        self.ole_param_flag_mask(PARAMFLAG_FRETVAL.0)
     }
     /*pub fn default_val<T>(&self) -> Option<T> {
         let mask = PARAMFLAGS(PARAMFLAG_FOPT.0 | PARAMFLAG_FHASDEFAULT.0);

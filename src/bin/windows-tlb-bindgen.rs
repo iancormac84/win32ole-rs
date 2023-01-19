@@ -14,10 +14,7 @@ use windows::{
                 VT_LPWSTR, VT_PTR, VT_R4, VT_R8, VT_SAFEARRAY, VT_UI1, VT_UI2, VT_UI4, VT_UI8,
                 VT_UINT, VT_UNKNOWN, VT_USERDEFINED, VT_VARIANT, VT_VOID,
             },
-            Ole::{
-                LoadTypeLibEx, PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOUT, PARAMFLAG_FRETVAL,
-                REGKIND_NONE,
-            },
+            Ole::{LoadTypeLibEx, PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOUT, REGKIND_NONE},
         },
     },
 };
@@ -171,7 +168,7 @@ where
                             let param_name = sanitize_reserved(param.name());
                             let type_string = type_to_string(
                                 param_desc,
-                                param.flags(),
+                                param.param_flags(),
                                 &typeinfo,
                                 &mut build_result,
                             )?;
@@ -239,7 +236,7 @@ where
                                     let param_name = sanitize_reserved(param.name());
                                     let type_string = type_to_string(
                                         &param_desc.tdesc,
-                                        param.flags(),
+                                        param.param_flags(),
                                         &typeinfo,
                                         &mut build_result,
                                     )?;
@@ -269,13 +266,13 @@ where
                                         sanitize_reserved(param.name()),
                                         type_to_string(
                                             &param_desc.tdesc,
-                                            param.flags(),
+                                            param.param_flags(),
                                             &typeinfo,
                                             &mut build_result
                                         )?
                                     )?;
 
-                                    if param.flags() & PARAMFLAG_FRETVAL == PARAMFLAG_FRETVAL {
+                                    if param.retval() {
                                         assert_eq!(function_desc.elemdescFunc.tdesc.vt, VT_HRESULT);
                                         explicit_ret_val = true;
                                     }
@@ -333,7 +330,7 @@ where
                                         sanitize_reserved(param.name()),
                                         type_to_string(
                                             &param_desc.tdesc,
-                                            param.flags(),
+                                            param.param_flags(),
                                             &typeinfo,
                                             &mut build_result
                                         )?
@@ -453,7 +450,7 @@ where
                             .params()
                             .into_iter()
                             .filter_map(|param| param.ok())
-                            .filter(|param| param.flags() & PARAMFLAG_FRETVAL == PARAMFLAGS(0))
+                            .filter(|param| !param.retval())
                             .collect();
 
                         writeln!(
@@ -479,7 +476,7 @@ where
                                 sanitize_reserved(param.name()),
                                 type_to_string(
                                     &param_desc.tdesc,
-                                    param.flags(),
+                                    param.param_flags(),
                                     &typeinfo,
                                     &mut build_result
                                 )?
@@ -493,7 +490,7 @@ where
 
                             for param in params.into_iter().rev() {
                                 let param_desc = param.elem_desc();
-                                if param.flags() & PARAMFLAG_FRETVAL == PARAMFLAGS(0) {
+                                if !param.retval() {
                                     let (vt, mutator) = vartype_mutator(
                                         &param_desc.tdesc,
                                         &sanitize_reserved(param.name()),

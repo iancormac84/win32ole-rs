@@ -90,7 +90,12 @@ pub struct TypeImplDesc {
     impl_type_flags: IMPLTYPEFLAGS,
 }
 impl TypeImplDesc {
-    pub fn new(typeinfo: ITypeInfo, ref_type: u32, index: u32, impl_type_flags: IMPLTYPEFLAGS) -> Self {
+    pub fn new(
+        typeinfo: ITypeInfo,
+        ref_type: u32,
+        index: u32,
+        impl_type_flags: IMPLTYPEFLAGS,
+    ) -> Self {
         TypeImplDesc {
             typeinfo,
             ref_type,
