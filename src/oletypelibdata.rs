@@ -20,7 +20,7 @@ use windows::{
         Foundation::E_UNEXPECTED,
         Globalization::GetUserDefaultLCID,
         System::{
-            Com::{ITypeInfo, ITypeLib, TLIBATTR},
+            Com::{ITypeInfo, ITypeLib, SYSKIND, TLIBATTR},
             Environment::ExpandEnvironmentStringsW,
             Ole::{
                 LoadTypeLibEx, QueryPathOfRegTypeLib, LIBFLAG_FHIDDEN, LIBFLAG_FRESTRICTED,
@@ -246,14 +246,23 @@ impl OleTypeLibData {
         Ok(path.into())
     }
     pub fn visible(&self) -> bool {
-        unsafe {
-            self.tlib_attr.as_ref().wLibFlags == 0
-                || self.tlib_attr.as_ref().wLibFlags & LIBFLAG_FRESTRICTED.0 as u16 != 0
-                || self.tlib_attr.as_ref().wLibFlags & LIBFLAG_FHIDDEN.0 as u16 != 0
-        }
+        let lib_flags = self.lib_flags();
+
+        lib_flags == 0
+            || lib_flags & LIBFLAG_FRESTRICTED.0 as u16 != 0
+            || lib_flags & LIBFLAG_FHIDDEN.0 as u16 != 0
     }
     pub fn ole_types(&self) -> Vec<Result<OleTypeData>> {
         ole_types_from_typelib(&self.typelib)
+    }
+    pub fn lib_flags(&self) -> u16 {
+        unsafe { self.tlib_attr.as_ref().wLibFlags }
+    }
+    pub fn lcid(&self) -> u32 {
+        unsafe { self.tlib_attr.as_ref().lcid }
+    }
+    pub fn syskind(&self) -> SYSKIND {
+        unsafe { self.tlib_attr.as_ref().syskind }
     }
 }
 

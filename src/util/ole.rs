@@ -7,9 +7,10 @@ use windows::{
     core::{Interface, BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
-            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage, CoInitializeEx, CoUninitialize,
-            ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CO_MTA_USAGE_COOKIE,
-            TYPEDESC, VT_PTR, VT_SAFEARRAY,
+            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage,
+            CoInitializeEx, CoUninitialize, ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER,
+            CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CO_MTA_USAGE_COOKIE, TYPEDESC, VT_PTR,
+            VT_SAFEARRAY,
         },
         Ole::{OleInitialize, OleUninitialize},
     },
