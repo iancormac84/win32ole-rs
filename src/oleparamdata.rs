@@ -58,7 +58,7 @@ impl OleParamData {
         self.ole_typedesc2val(Some(&mut typedetails));
         Ok(typedetails)
     }
-    pub fn flags(&self) -> PARAMFLAGS {
+    pub fn param_flags(&self) -> PARAMFLAGS {
         unsafe {
             (*(self.func_desc.as_ref())
                 .lprgelemdescParam
@@ -69,17 +69,8 @@ impl OleParamData {
         }
     }
     fn ole_param_flag_mask(&self, mask: u16) -> bool {
-        let ret = unsafe {
-            &(*(self.func_desc.as_ref())
-                .lprgelemdescParam
-                .offset(self.index as isize))
-            .Anonymous
-            .paramdesc
-            .wParamFlags
-            .0
-        } & mask
-            != 0;
-        ret
+        let paramflags = self.param_flags();
+        paramflags & mask != 0;
     }
     pub fn input(&self) -> bool {
         self.ole_param_flag_mask(PARAMFLAG_FIN.0)
