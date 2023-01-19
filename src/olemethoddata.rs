@@ -15,7 +15,7 @@ use std::{
 use windows::{
     core::{BSTR, PCWSTR},
     Win32::System::Com::{
-        ITypeInfo, FUNCDESC, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
+        ITypeInfo, FUNCDESC, FUNCKIND, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
         INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR, TYPEDESC, VARENUM,
     },
 };
@@ -159,6 +159,9 @@ impl OleMethodData {
         let mut type_details = vec![];
         self.ole_typedesc2val(Some(&mut type_details));
         type_details
+    }
+    pub fn funckind(&self) -> FUNCKIND {
+        unsafe { self.func_desc.as_ref().funckind }
     }
     pub fn invkind(&self) -> INVOKEKIND {
         unsafe { self.func_desc.as_ref().invkind }
