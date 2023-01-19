@@ -231,9 +231,9 @@ impl OleTypeLibData {
     pub fn path(&self) -> Result<PathBuf> {
         let result = unsafe {
             QueryPathOfRegTypeLib(
-                &self.tlib_attr.as_ref().guid,
-                self.tlib_attr.as_ref().wMajorVerNum,
-                self.tlib_attr.as_ref().wMinorVerNum,
+                &self.guid(),
+                self.major_version(),
+                self.minor_version(),
                 GetUserDefaultLCID(),
             )
         };
