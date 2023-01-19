@@ -235,7 +235,7 @@ where
 
                                 for param in function.params() {
                                     let param = param?;
-                                    let param_desc = param.desc();
+                                    let param_desc = param.elem_desc();
                                     let param_name = sanitize_reserved(param.name());
                                     let type_string = type_to_string(
                                         &param_desc.tdesc,
@@ -262,7 +262,7 @@ where
 
                                 for param in function.params() {
                                     let param = param?;
-                                    let param_desc = param.desc();
+                                    let param_desc = param.elem_desc();
                                     writeln!(
                                         out,
                                         "        {}: {},",
@@ -326,7 +326,7 @@ where
 
                                 for param in function.params() {
                                     let param = param?;
-                                    let param_desc = param.desc();
+                                    let param_desc = param.elem_desc();
                                     writeln!(
                                         out,
                                         "        {}: {},",
@@ -472,7 +472,7 @@ where
                         writeln!(out, "        &self,")?;
 
                         for param in &params {
-                            let param_desc = param.desc();
+                            let param_desc = param.elem_desc();
                             writeln!(
                                 out,
                                 "        {}: {},",
@@ -492,7 +492,7 @@ where
                             writeln!(out, "        let mut args: [VARIANT; {}] = [", params.len())?;
 
                             for param in params.into_iter().rev() {
-                                let param_desc = param.desc();
+                                let param_desc = param.elem_desc();
                                 if param.flags() & PARAMFLAG_FRETVAL == PARAMFLAGS(0) {
                                     let (vt, mutator) = vartype_mutator(
                                         &param_desc.tdesc,

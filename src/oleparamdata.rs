@@ -111,7 +111,7 @@ impl OleParamData {
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         defval
     }*/
-    pub fn desc(&self) -> &ELEMDESC {
+    pub fn elem_desc(&self) -> &ELEMDESC {
         unsafe {
             &*self
                 .func_desc
