@@ -23,6 +23,7 @@ pub use {
     oleparamdata::OleParamData,
     oletypedata::OleTypeData,
     oletypelibdata::{oletypelib_from_guid, OleTypeLibData},
+    olevariabledata::OleVariableData,
     util::{
         conv::ToWide,
         ole::{init_runtime, ole_initialized, TypeRef},
