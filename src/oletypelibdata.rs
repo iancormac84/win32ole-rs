@@ -264,6 +264,9 @@ impl OleTypeLibData {
     pub fn syskind(&self) -> SYSKIND {
         unsafe { self.tlib_attr.as_ref().syskind }
     }
+    pub fn num_type_entries(&self) -> u32 {
+        unsafe { self.typelib.GetTypeInfoCount() }
+    }
 }
 
 impl TryFrom<&ITypeInfo> for OleTypeLibData {
