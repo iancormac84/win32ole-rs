@@ -7,13 +7,29 @@ use windows::{
     core::{Interface, BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
-            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoInitializeEx, CoUninitialize,
-            ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED,
+            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage, CoInitializeEx, CoUninitialize,
+            ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CO_MTA_USAGE_COOKIE,
             TYPEDESC, VT_PTR, VT_SAFEARRAY,
         },
         Ole::{OleInitialize, OleUninitialize},
     },
 };
+
+/// Initialize a new multithreaded apartment (MTA) runtime. This will ensure
+/// that an MTA is running for the process. Every new thread will implicitly
+/// be in the MTA unless a different apartment type is chosen (through [`init_apartment`])
+///
+/// This calls `CoIncrementMTAUsage`
+///
+/// This function only needs to be called once per process.
+pub fn init_runtime() -> Result<CO_MTA_USAGE_COOKIE, HRESULT> {
+    match unsafe { CoIncrementMTAUsage() } {
+        // S_OK indicates the runtime was initialized
+        S_OK => Ok(cookie),
+        // Any other result is considered an error here.
+        hr => Err(hr),
+    }
+}
 
 thread_local!(static OLE_INITIALIZED: OleInitialized = {
     unsafe {

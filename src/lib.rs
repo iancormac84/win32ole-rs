@@ -25,7 +25,7 @@ pub use {
     oletypelibdata::{oletypelib_from_guid, OleTypeLibData},
     util::{
         conv::ToWide,
-        ole::{ole_initialized, TypeRef},
+        ole::{init_runtime, ole_initialized, TypeRef},
     },
 };
 
