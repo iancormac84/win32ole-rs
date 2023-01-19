@@ -201,6 +201,12 @@ impl OleTypeData {
         let typeinfo = unsafe { self.typeinfo.GetRefTypeInfo(ref_type)? };
         OleTypeData::try_from(typeinfo)
     }
+    pub fn num_impl_types(&self) -> u16 {
+        unsafe { self.type_attr.as_ref().cImplTypes }
+    }
+    pub fn num_funcs(&self) -> u16 {
+        unsafe { self.type_attr.as_ref().cFuncs }
+    }
     pub fn num_variables(&self) -> u16 {
         unsafe { self.type_attr.as_ref().cVars }
     }
