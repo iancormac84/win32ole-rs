@@ -272,6 +272,9 @@ impl OleMethodData {
     pub fn desc(&self) -> &FUNCDESC {
         unsafe { self.func_desc.as_ref() }
     }
+    pub fn get_ref_type_info(&self, href: u32) -> Result<ITypeInfo> {
+        Ok(unsafe { self.typeinfo.GetRefTypeInfo(href)? })
+    }
 }
 
 impl Drop for OleMethodData {
