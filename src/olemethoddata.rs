@@ -152,7 +152,7 @@ impl OleMethodData {
     pub fn return_type(&self) -> String {
         self.ole_typedesc2val(None)
     }
-    pub fn return_type_typedesc(&self) -> &TYPEDESC {
+    pub fn return_type_desc(&self) -> &TYPEDESC {
         unsafe { &self.func_desc.as_ref().elemdescFunc.tdesc }
     }
     pub fn return_vtype(&self) -> VARENUM {
