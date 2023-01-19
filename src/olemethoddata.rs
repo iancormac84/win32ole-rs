@@ -113,6 +113,24 @@ impl OleMethodData {
         };
         Ok(())
     }
+    pub fn get_documentation(&self) -> Result<(String, String, u32, String)> {
+        let mut strname = BSTR::default();
+        let mut strdocstring = BSTR::default();
+        let mut whelpcontext = 0;
+        let mut strhelpfile = BSTR::default();
+        self.docinfo_from_type(
+            Some(&mut strname),
+            Some(&mut strdocstring),
+            &mut whelpcontext,
+            Some(&mut strhelpfile),
+        )?;
+        Ok((
+            String::try_from(strname)?,
+            String::try_from(strdocstring)?,
+            whelpcontext,
+            String::try_from(strhelpfile)?,
+        ))
+    }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
         self.docinfo_from_type(None, Some(&mut helpstring), ptr::null_mut(), None)?;
