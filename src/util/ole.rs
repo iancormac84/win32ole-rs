@@ -23,12 +23,7 @@ use windows::{
 ///
 /// This function only needs to be called once per process.
 pub fn init_runtime() -> windows::core::Result<CO_MTA_USAGE_COOKIE> {
-    match unsafe { CoIncrementMTAUsage() } {
-        // S_OK indicates the runtime was initialized
-        S_OK => Ok(cookie),
-        // Any other result is considered an error here.
-        hr => Err(hr),
-    }
+    unsafe { CoIncrementMTAUsage() }
 }
 
 thread_local!(static OLE_INITIALIZED: OleInitialized = {
