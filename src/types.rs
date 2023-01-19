@@ -85,13 +85,15 @@ impl<'a> Iterator for OleClassNames<'a> {
 #[derive(Debug)]
 pub struct TypeImplDesc {
     typeinfo: ITypeInfo,
+    ref_type: u32,
     index: u32,
     impl_type_flags: IMPLTYPEFLAGS,
 }
 impl TypeImplDesc {
-    pub fn new(typeinfo: ITypeInfo, index: u32, impl_type_flags: IMPLTYPEFLAGS) -> Self {
+    pub fn new(typeinfo: ITypeInfo, ref_type: u32, index: u32, impl_type_flags: IMPLTYPEFLAGS) -> Self {
         TypeImplDesc {
             typeinfo,
+            ref_type,
             index,
             impl_type_flags,
         }
@@ -101,6 +103,9 @@ impl TypeImplDesc {
     }
     pub fn into_typeinfo(self) -> ITypeInfo {
         self.typeinfo
+    }
+    pub fn ref_type(&self) -> u32 {
+        self.ref_type
     }
     pub fn is_source(&self) -> bool {
         self.impl_type_flags & IMPLTYPEFLAG_FSOURCE != IMPLTYPEFLAGS(0)
@@ -179,6 +184,7 @@ impl<'a> Iterator for ReferencedTypes<'a> {
 
             Some(Ok(TypeImplDesc::new(
                 ref_type_info,
+                ref_type,
                 self.method_index,
                 impl_type_flags,
             )))
