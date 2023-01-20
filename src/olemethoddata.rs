@@ -95,7 +95,7 @@ impl OleMethodData {
 
         Ok(None)
     }
-    fn docinfo_from_type(
+    fn docinfo(
         &self,
         name: Option<*mut BSTR>,
         helpstr: Option<*mut BSTR>,
@@ -118,7 +118,7 @@ impl OleMethodData {
         let mut strdocstring = BSTR::default();
         let mut whelpcontext = 0;
         let mut strhelpfile = BSTR::default();
-        self.docinfo_from_type(
+        self.docinfo(
             Some(&mut strname),
             Some(&mut strdocstring),
             &mut whelpcontext,
@@ -133,17 +133,17 @@ impl OleMethodData {
     }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
-        self.docinfo_from_type(None, Some(&mut helpstring), ptr::null_mut(), None)?;
+        self.docinfo(None, Some(&mut helpstring), ptr::null_mut(), None)?;
         Ok(String::try_from(helpstring)?)
     }
     pub fn helpfile(&self) -> Result<String> {
         let mut helpfile = BSTR::default();
-        self.docinfo_from_type(None, None, ptr::null_mut(), Some(&mut helpfile))?;
+        self.docinfo(None, None, ptr::null_mut(), Some(&mut helpfile))?;
         Ok(String::try_from(helpfile)?)
     }
     pub fn helpcontext(&self) -> Result<u32> {
         let mut helpcontext = 0;
-        self.docinfo_from_type(None, None, &mut helpcontext, None)?;
+        self.docinfo(None, None, &mut helpcontext, None)?;
         Ok(helpcontext)
     }
     pub fn dispid(&self) -> i32 {
@@ -258,7 +258,7 @@ impl OleMethodData {
     pub fn event_interface(&self) -> Result<Option<String>> {
         if self.is_event() {
             let mut name = BSTR::default();
-            self.docinfo_from_type(Some(&mut name), None, ptr::null_mut(), None)?;
+            self.docinfo(Some(&mut name), None, ptr::null_mut(), None)?;
             return Ok(Some(name.to_string()));
         }
         Ok(None)

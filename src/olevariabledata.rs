@@ -1,9 +1,9 @@
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
-use windows::Win32::System::Com::{
+use windows::{core::BSTR, Win32::System::Com::{
     ITypeInfo, TYPEDESC, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE, VARFLAG_FRESTRICTED,
     VARIANT, VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
-};
+}};
 
 use crate::{
     error::Result,
@@ -76,6 +76,57 @@ impl OleVariableData {
     }
     pub fn member_id(&self) -> i32 {
         unsafe { self.var_desc.as_ref().memid }
+    }
+    fn docinfo(
+        &self,
+        name: Option<*mut BSTR>,
+        helpstr: Option<*mut BSTR>,
+        helpcontext: *mut u32,
+        helpfile: Option<*mut BSTR>,
+    ) -> Result<()> {
+        unsafe {
+            self.typeinfo.GetDocumentation(
+                self.var_desc.as_ref().memid,
+                name,
+                helpstr,
+                helpcontext,
+                helpfile,
+            )?
+        };
+        Ok(())
+    }
+    pub fn get_documentation(&self) -> Result<(String, String, u32, String)> {
+        let mut strname = BSTR::default();
+        let mut strdocstring = BSTR::default();
+        let mut whelpcontext = 0;
+        let mut strhelpfile = BSTR::default();
+        self.docinfo(
+            Some(&mut strname),
+            Some(&mut strdocstring),
+            &mut whelpcontext,
+            Some(&mut strhelpfile),
+        )?;
+        Ok((
+            String::try_from(strname)?,
+            String::try_from(strdocstring)?,
+            whelpcontext,
+            String::try_from(strhelpfile)?,
+        ))
+    }
+    pub fn helpstring(&self) -> Result<String> {
+        let mut helpstring = BSTR::default();
+        self.docinfo(None, Some(&mut helpstring), ptr::null_mut(), None)?;
+        Ok(String::try_from(helpstring)?)
+    }
+    pub fn helpfile(&self) -> Result<String> {
+        let mut helpfile = BSTR::default();
+        self.docinfo(None, None, ptr::null_mut(), Some(&mut helpfile))?;
+        Ok(String::try_from(helpfile)?)
+    }
+    pub fn helpcontext(&self) -> Result<u32> {
+        let mut helpcontext = 0;
+        self.docinfo(None, None, &mut helpcontext, None)?;
+        Ok(helpcontext)
     }
 }
 

@@ -187,7 +187,7 @@ pub trait ValueDescription: TypeRef {
         }
         let reftypeinfo = result.unwrap();
         let mut bstrname = BSTR::default();
-        let result = ole_docinfo_from_type(
+        let result = ole_docinfo(
             &reftypeinfo,
             Some(&mut bstrname),
             None,
@@ -205,7 +205,7 @@ pub trait ValueDescription: TypeRef {
     }
 }
 
-pub(crate) fn ole_docinfo_from_type(
+pub(crate) fn ole_docinfo(
     typeinfo: &ITypeInfo,
     name: Option<*mut BSTR>,
     helpstr: Option<*mut BSTR>,

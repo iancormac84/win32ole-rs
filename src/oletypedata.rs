@@ -6,7 +6,7 @@ use crate::{
     types::{OleClassNames, ReferencedTypes, TypeInfos, Variables},
     util::{
         conv::ToWide,
-        ole::{ole_docinfo_from_type, ole_initialized, TypeRef, ValueDescription},
+        ole::{ole_docinfo, ole_initialized, TypeRef, ValueDescription},
     },
     OleMethodData,
 };
@@ -68,7 +68,7 @@ impl OleTypeData {
         let mut strdocstring = BSTR::default();
         let mut whelpcontext = 0;
         let mut strhelpfile = BSTR::default();
-        ole_docinfo_from_type(
+        ole_docinfo(
             &self.typeinfo,
             Some(&mut strname),
             Some(&mut strdocstring),
@@ -84,7 +84,7 @@ impl OleTypeData {
     }
     pub fn helpstring(&self) -> Result<String> {
         let mut helpstring = BSTR::default();
-        ole_docinfo_from_type(
+        ole_docinfo(
             &self.typeinfo,
             None,
             Some(&mut helpstring),
@@ -95,7 +95,7 @@ impl OleTypeData {
     }
     pub fn helpfile(&self) -> Result<String> {
         let mut helpfile = BSTR::default();
-        ole_docinfo_from_type(
+        ole_docinfo(
             &self.typeinfo,
             None,
             None,
@@ -106,7 +106,7 @@ impl OleTypeData {
     }
     pub fn helpcontext(&self) -> Result<u32> {
         let mut helpcontext = 0;
-        ole_docinfo_from_type(&self.typeinfo, None, None, &mut helpcontext, None)?;
+        ole_docinfo(&self.typeinfo, None, None, &mut helpcontext, None)?;
         Ok(helpcontext)
     }
     pub fn major_version(&self) -> u16 {
