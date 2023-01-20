@@ -264,3 +264,45 @@ fn ole_show_help_<S: AsRef<OsStr>>(helpfile: S, helpcontext: usize) -> Result<HW
     }
     Ok(hwnd)
 }*/
+
+/*static VALUE
+ole_excepinfo2msg(EXCEPINFO *pExInfo)
+{
+    char error_code[40];
+    char *pSource = NULL;
+    char *pDescription = NULL;
+    VALUE error_msg;
+    if(pExInfo->pfnDeferredFillIn != NULL) {
+        (*pExInfo->pfnDeferredFillIn)(pExInfo);
+    }
+    if (pExInfo->bstrSource != NULL) {
+        pSource = ole_wc2mb(pExInfo->bstrSource);
+    }
+    if (pExInfo->bstrDescription != NULL) {
+        pDescription = ole_wc2mb(pExInfo->bstrDescription);
+    }
+    if(pExInfo->wCode == 0) {
+        sprintf(error_code, "\n    OLE error code:%lX in ", (unsigned long)pExInfo->scode);
+    }
+    else{
+        sprintf(error_code, "\n    OLE error code:%u in ", pExInfo->wCode);
+    }
+    error_msg = rb_str_new2(error_code);
+    if(pSource != NULL) {
+        rb_str_cat2(error_msg, pSource);
+    }
+    else {
+        rb_str_cat(error_msg, "<Unknown>", 9);
+    }
+    rb_str_cat2(error_msg, "\n      ");
+    if(pDescription != NULL) {
+        rb_str_cat2(error_msg, pDescription);
+    }
+    else {
+        rb_str_cat2(error_msg, "<No Description>");
+    }
+    if(pSource) free(pSource);
+    if(pDescription) free(pDescription);
+    ole_freeexceptinfo(pExInfo);
+    return error_msg;
+} */
