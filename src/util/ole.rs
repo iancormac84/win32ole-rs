@@ -4,7 +4,7 @@ use crate::{
 };
 use std::{ffi::OsStr, ptr};
 use windows::{
-    core::{Interface, BSTR, GUID, PCWSTR},
+    core::{BSTR, GUID, PCWSTR, ComInterface},
     Win32::System::{
         Com::{
             CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage,
@@ -84,12 +84,12 @@ pub fn get_class_id<S: AsRef<OsStr>>(s: S) -> Result<GUID> {
     }
 }
 
-pub fn create_instance<T: Interface>(clsid: &GUID) -> Result<T> {
+pub fn create_instance<T: ComInterface>(clsid: &GUID) -> Result<T> {
     let flags = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER;
     unsafe { Ok(CoCreateInstance(clsid, None, flags)?) }
 }
 
-pub fn create_com_object<S: AsRef<OsStr>, T: Interface>(s: S) -> Result<T> {
+pub fn create_com_object<S: AsRef<OsStr>, T: ComInterface>(s: S) -> Result<T> {
     ole_initialized();
     let class_id = get_class_id(s)?;
 

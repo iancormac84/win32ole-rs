@@ -1,12 +1,12 @@
 use std::{ffi::OsStr, ptr};
 
 use windows::{
-    core::{Interface, Vtable, BSTR, GUID, PCWSTR},
+    core::{BSTR, GUID, HRESULT, PCWSTR, ComInterface, Interface},
     Win32::{
         Globalization::GetUserDefaultLCID,
         System::Com::{
-            IDispatch, ITypeInfo, ITypeLib, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-            INVOKE_PROPERTYPUTREF,
+            IDispatch, ITypeInfo, ITypeLib, EXCEPINFO, INVOKE_FUNC, INVOKE_PROPERTYGET,
+            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF,
         },
     },
 };
@@ -164,7 +164,7 @@ impl OleData {
             Err(error.into())
         } else {
             let dispatch: IDispatch =
-                unsafe { <IDispatch as Vtable>::from_raw(dispatch_interface as *mut _) };
+                unsafe { <IDispatch as Interface>::from_raw(dispatch_interface as *mut _) };
             Ok(OleData { dispatch })
         }
     }
@@ -265,44 +265,45 @@ fn ole_show_help_<S: AsRef<OsStr>>(helpfile: S, helpcontext: usize) -> Result<HW
     Ok(hwnd)
 }*/
 
-/*static VALUE
-ole_excepinfo2msg(EXCEPINFO *pExInfo)
-{
-    char error_code[40];
-    char *pSource = NULL;
-    char *pDescription = NULL;
-    VALUE error_msg;
-    if(pExInfo->pfnDeferredFillIn != NULL) {
-        (*pExInfo->pfnDeferredFillIn)(pExInfo);
+fn ole_excepinfo2msg(exinfo: &mut EXCEPINFO) -> String {
+    let mut hr = HRESULT::default();
+
+    if let Some(func) = exinfo.pfnDeferredFillIn {
+        hr = unsafe { func(&mut *exinfo) };
     }
-    if (pExInfo->bstrSource != NULL) {
-        pSource = ole_wc2mb(pExInfo->bstrSource);
+    
+    let s = &exinfo.bstrSource;
+    let source = if !s.is_empty() {
+        s.to_string()
+    } else {
+        String::new()
+    };
+    let d = &exinfo.bstrDescription;
+    let description = if !d.is_empty() {
+        d.to_string()
+    } else {
+        String::new()
+    };
+    let mut msg = if exinfo.wCode == 0 {
+        format!("\n    OLE error code: {} in ", exinfo.scode)
+    } else {
+        format!("\n    OLE error code: {} in ", exinfo.wCode)
+    };
+
+    if !source.is_empty() {
+        msg.push_str(&source);
+    } else {
+        msg.push_str("<Unknown>");
     }
-    if (pExInfo->bstrDescription != NULL) {
-        pDescription = ole_wc2mb(pExInfo->bstrDescription);
+    msg.push_str("\n      ");
+    if !description.is_empty() {
+        msg.push_str(&description);
+    } else {
+        msg.push_str("<No Description>");
     }
-    if(pExInfo->wCode == 0) {
-        sprintf(error_code, "\n    OLE error code:%lX in ", (unsigned long)pExInfo->scode);
-    }
-    else{
-        sprintf(error_code, "\n    OLE error code:%u in ", pExInfo->wCode);
-    }
-    error_msg = rb_str_new2(error_code);
-    if(pSource != NULL) {
-        rb_str_cat2(error_msg, pSource);
-    }
-    else {
-        rb_str_cat(error_msg, "<Unknown>", 9);
-    }
-    rb_str_cat2(error_msg, "\n      ");
-    if(pDescription != NULL) {
-        rb_str_cat2(error_msg, pDescription);
-    }
-    else {
-        rb_str_cat2(error_msg, "<No Description>");
-    }
-    if(pSource) free(pSource);
-    if(pDescription) free(pDescription);
-    ole_freeexceptinfo(pExInfo);
-    return error_msg;
-} */
+
+    let _ = exinfo.bstrSource;
+    let _ = exinfo.bstrDescription;
+
+    msg
+}

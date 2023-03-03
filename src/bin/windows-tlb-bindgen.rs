@@ -435,6 +435,7 @@ where
                         .any(|function| function.desc().oVft > 0);
 
                     for function in typeinfo.ole_methods()? {
+                        println!("function name is {}", function.name());
                         let function_desc = function.desc();
 
                         assert_eq!(function_desc.funckind, FUNC_DISPATCH);
@@ -518,7 +519,7 @@ where
                             "        let mut exception_info = EXCEPINFO::default();"
                         )?;
                         writeln!(out)?;
-                        writeln!(out, "        let mut error_arg: UINT = 0;")?;
+                        writeln!(out, "        let mut error_arg = 0;")?;
                         writeln!(out)?;
                         writeln!(out, "        let mut disp_params = DISPPARAMS {{")?;
                         writeln!(
@@ -551,8 +552,8 @@ where
                         )?;
                         writeln!(out, "        }};")?;
                         writeln!(out)?;
-                        writeln!(out, "        let hr = ((*self.lpVtbl).parent.Invoke)(")?;
-                        writeln!(out, "            self as *const _ as *mut _,")?;
+                        writeln!(out, "        let hr = IDispatch::Invoke(")?;
+                        writeln!(out, "            self,")?;
                         writeln!(
                             out,
                             "            /* dispIdMember */ {},",
@@ -571,10 +572,13 @@ where
                                 _ => unreachable!(),
                             }
                         )?;
-                        writeln!(out, "            /* pDispParams */ &mut disp_params,")?;
-                        writeln!(out, "            /* pVarResult */ &mut result,")?;
-                        writeln!(out, "            /* pExcepInfo */ &mut exception_info,")?;
-                        writeln!(out, "            /* puArgErr */ &mut error_arg,")?;
+                        writeln!(out, "            /* pDispParams */ &disp_params,")?;
+                        writeln!(out, "            /* pVarResult */ Some(&mut result),")?;
+                        writeln!(
+                            out,
+                            "            /* pExcepInfo */ Some(&mut exception_info),"
+                        )?;
+                        writeln!(out, "            /* puArgErr */ Some(&mut error_arg),")?;
                         writeln!(out, "        );")?;
                         writeln!(out)?;
                         writeln!(out, "        (hr, result, exception_info, error_arg)")?;
@@ -599,7 +603,7 @@ where
                             "        let mut exception_info = EXCEPINFO::default();"
                         )?;
                         writeln!(out)?;
-                        writeln!(out, "        let mut error_arg: UINT = 0;")?;
+                        writeln!(out, "        let mut error_arg = 0;")?;
                         writeln!(out)?;
                         writeln!(out, "        let mut disp_params = DISPPARAMS {{")?;
                         writeln!(out, "            rgvarg: ::core::ptr::null_mut(),")?;
@@ -611,8 +615,8 @@ where
                         writeln!(out, "            cNamedArgs: 0,")?;
                         writeln!(out, "        }};")?;
                         writeln!(out)?;
-                        writeln!(out, "        let hr = ((*self.lpVtbl).parent.Invoke)(")?;
-                        writeln!(out, "            self as *const _ as *mut _,")?;
+                        writeln!(out, "        let hr = IDispatch::Invoke(")?;
+                        writeln!(out, "            self,")?;
                         writeln!(
                             out,
                             "            /* dispIdMember */ {},",
@@ -621,10 +625,13 @@ where
                         writeln!(out, "            /* riid */ &IID_NULL,")?;
                         writeln!(out, "            /* lcid */ 0,")?;
                         writeln!(out, "            /* wFlags */ DISPATCH_PROPERTYGET,")?;
-                        writeln!(out, "            /* pDispParams */ &mut disp_params,")?;
-                        writeln!(out, "            /* pVarResult */ &mut result,")?;
-                        writeln!(out, "            /* pExcepInfo */ &mut exception_info,")?;
-                        writeln!(out, "            /* puArgErr */ &mut error_arg,")?;
+                        writeln!(out, "            /* pDispParams */ &disp_params,")?;
+                        writeln!(out, "            /* pVarResult */ Some(&mut result),")?;
+                        writeln!(
+                            out,
+                            "            /* pExcepInfo */ Some(&mut exception_info),"
+                        )?;
+                        writeln!(out, "            /* puArgErr */ Some(&mut error_arg),")?;
                         writeln!(out, "        );")?;
                         writeln!(out)?;
                         writeln!(out, "        (hr, result, exception_info, error_arg)")?;
@@ -654,7 +661,7 @@ where
                             "        let mut exception_info = EXCEPINFO::default();"
                         )?;
                         writeln!(out)?;
-                        writeln!(out, "        let mut error_arg: UINT = 0;")?;
+                        writeln!(out, "        let mut error_arg = 0;")?;
                         writeln!(out)?;
                         writeln!(out, "        let mut disp_params = DISPPARAMS {{")?;
                         writeln!(out, "            rgvarg: args.as_mut_ptr(),")?;
@@ -666,8 +673,8 @@ where
                         writeln!(out, "            cNamedArgs: 0,")?;
                         writeln!(out, "        }};")?;
                         writeln!(out)?;
-                        writeln!(out, "        let hr = ((*self.lpVtbl).parent.Invoke)(")?;
-                        writeln!(out, "            self as *const _ as *mut _,")?;
+                        writeln!(out, "        let hr = IDispatch::Invoke(")?;
+                        writeln!(out, "            self,")?;
                         writeln!(
                             out,
                             "            /* dispIdMember */ {},",
@@ -676,10 +683,13 @@ where
                         writeln!(out, "            /* riid */ &IID_NULL,")?;
                         writeln!(out, "            /* lcid */ 0,")?;
                         writeln!(out, "            /* wFlags */ DISPATCH_PROPERTYPUT,")?;
-                        writeln!(out, "            /* pDispParams */ &mut disp_params,")?;
-                        writeln!(out, "            /* pVarResult */ &mut result,")?;
-                        writeln!(out, "            /* pExcepInfo */ &mut exception_info,")?;
-                        writeln!(out, "            /* puArgErr */ &mut error_arg,")?;
+                        writeln!(out, "            /* pDispParams */ &disp_params,")?;
+                        writeln!(out, "            /* pVarResult */ Some(&mut result),")?;
+                        writeln!(
+                            out,
+                            "            /* pExcepInfo */ Some(&mut exception_info),"
+                        )?;
+                        writeln!(out, "            /* puArgErr */ Some(&mut error_arg),")?;
                         writeln!(out, "        );")?;
                         writeln!(out)?;
                         // TODO: VariantClear() on args

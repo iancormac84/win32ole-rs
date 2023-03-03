@@ -242,7 +242,7 @@ impl OleTypeLibData {
         }
 
         let bstr = result.unwrap();
-        let path = unsafe { os_string_from_ptr(bstr) };
+        let path = unsafe { os_string_from_ptr(bstr.into_raw()) };
         Ok(path.into())
     }
     pub fn visible(&self) -> bool {

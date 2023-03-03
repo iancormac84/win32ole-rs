@@ -1,9 +1,12 @@
 use std::ptr::{self, NonNull};
 
-use windows::{core::BSTR, Win32::System::Com::{
-    ITypeInfo, TYPEDESC, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE, VARFLAG_FRESTRICTED,
-    VARIANT, VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
-}};
+use windows::{
+    core::BSTR,
+    Win32::System::Com::{
+        ITypeInfo, TYPEDESC, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE, VARFLAG_FRESTRICTED,
+        VARIANT, VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
+    },
+};
 
 use crate::{
     error::Result,
