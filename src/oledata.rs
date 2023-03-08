@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, ptr};
 
 use windows::{
-    core::{BSTR, GUID, HRESULT, PCWSTR, ComInterface, Interface},
+    core::{BSTR, GUID, PCWSTR, ComInterface, Interface},
     Win32::{
         Globalization::GetUserDefaultLCID,
         System::Com::{
@@ -266,11 +266,11 @@ fn ole_show_help_<S: AsRef<OsStr>>(helpfile: S, helpcontext: usize) -> Result<HW
 }*/
 
 fn ole_excepinfo2msg(exinfo: &mut EXCEPINFO) -> String {
-    let mut hr = HRESULT::default();
-
-    if let Some(func) = exinfo.pfnDeferredFillIn {
-        hr = unsafe { func(&mut *exinfo) };
-    }
+    let hr = if let Some(func) = exinfo.pfnDeferredFillIn {
+        Some(unsafe { func(&mut *exinfo) })
+    } else {
+        None
+    };
     
     let s = &exinfo.bstrSource;
     let source = if !s.is_empty() {
