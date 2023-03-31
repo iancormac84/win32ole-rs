@@ -1,4 +1,4 @@
-#![feature(once_cell)]
+#![feature(lazy_cell)]
 
 use crate::{error::Result, util::RegKey};
 use std::sync::LazyLock;
