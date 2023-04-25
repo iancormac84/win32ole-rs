@@ -32,7 +32,7 @@ thread_local!(static OLE_INITIALIZED: OleInitialized = {
         let result = if *G_RUNNING_NANO {
             CoInitializeEx(None, COINIT_MULTITHREADED)
         } else {
-            OleInitialize(ptr::null_mut())
+            OleInitialize(None)
         };
         if let Err(error) = result {
             let runtime_error = OleError::runtime(error, "failed: OLE initialization");
