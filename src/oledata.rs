@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, ptr};
 
 use windows::{
-    core::{BSTR, GUID, PCWSTR, ComInterface, Interface},
+    core::{ComInterface, Interface, BSTR, GUID, PCWSTR},
     Win32::{
         Globalization::GetUserDefaultLCID,
         System::Com::{
@@ -271,7 +271,7 @@ fn ole_excepinfo2msg(exinfo: &mut EXCEPINFO) -> String {
     } else {
         None
     };
-    
+
     let s = &exinfo.bstrSource;
     let source = if !s.is_empty() {
         s.to_string()

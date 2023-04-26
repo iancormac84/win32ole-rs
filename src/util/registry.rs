@@ -8,7 +8,7 @@ use std::{
 use windows::{
     core::{PCWSTR, PWSTR},
     Win32::{
-        Foundation::{ERROR_BAD_FILE_TYPE, ERROR_INVALID_BLOCK, ERROR_SUCCESS, WIN32_ERROR},
+        Foundation::{ERROR_BAD_FILE_TYPE, ERROR_INVALID_BLOCK},
         System::{
             Environment::ExpandEnvironmentStringsW,
             Registry::{
@@ -222,8 +222,8 @@ impl RegKey {
         let mut new_hkey = HKEY::default();
         match unsafe { RegOpenKeyExW(self.hkey, PCWSTR(c_path.as_ptr()), 0, perms, &mut new_hkey) }
         {
-            ERROR_SUCCESS => Ok(RegKey { hkey: new_hkey }),
-            err => Err(windows::core::Error::from(err).into()),
+            Ok(()) => Ok(RegKey { hkey: new_hkey }),
+            Err(err) => Err(err.into()),
         }
     }
 
@@ -265,9 +265,8 @@ impl RegKey {
                     Some(buf.as_mut_ptr()),
                     Some(&mut buf_len),
                 )
-                .0
             } {
-                0 => {
+                Ok(()) => {
                     // ERROR_SUCCESS
                     unsafe {
                         buf.set_len(buf_len as usize);
@@ -281,11 +280,14 @@ impl RegKey {
                         vtype: buf_type,
                     });
                 }
-                234 => {
-                    // ERROR_MORE_DATA
-                    buf.reserve(buf_len as usize);
+                Err(err) => {
+                    if err.code().0 as u32 == 0x800700EA {
+                        // ERROR_MORE_DATA
+                        buf.reserve(buf_len as usize);
+                    } else {
+                        return Err(err.into());
+                    }
                 }
-                err => return Err(windows::core::Error::from(WIN32_ERROR(err)).into()),
             }
         }
     }
@@ -295,10 +297,10 @@ impl RegKey {
         if self.hkey.0 >= HKEY_CLASSES_ROOT.0 {
             return Ok(());
         };
-        let result = unsafe { RegCloseKey(self.hkey) };
-        match result.0 {
-            0 => Ok(()),
-            _ => Err(windows::core::Error::from(result).into()),
+        if let Err(err) = unsafe { RegCloseKey(self.hkey) } {
+            Err(err.into())
+        } else {
+            Ok(())
         }
     }
 
@@ -317,15 +319,20 @@ impl RegKey {
                 None,
                 None,
             )
-            .0
         } {
-            0 => match String::from_utf16(&name[..name_len as usize]) {
+            Ok(()) => match String::from_utf16(&name[..name_len as usize]) {
                 // ERROR_SUCCESS
                 Ok(s) => Some(Ok(s)),
                 Err(_) => Some(Err(windows::core::Error::from(ERROR_INVALID_BLOCK).into())),
             },
-            259 => None, // ERROR_NO_MORE_ITEMS
-            err => Some(Err(windows::core::Error::from(WIN32_ERROR(err)).into())),
+            Err(err) => {
+                if err.code().0 as u32 == 0x80070103 {
+                    // ERROR_NO_MORE_ITEMS
+                    None
+                } else {
+                    Some(Err(err.into()))
+                }
+            }
         }
     }
 }

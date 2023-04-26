@@ -4,7 +4,7 @@ use crate::{
 };
 use std::{ffi::OsStr, ptr};
 use windows::{
-    core::{BSTR, GUID, PCWSTR, ComInterface},
+    core::{ComInterface, BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
             CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage,
