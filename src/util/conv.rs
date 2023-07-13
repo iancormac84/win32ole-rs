@@ -28,7 +28,6 @@ pub unsafe fn os_string_from_ptr(ptr: *const u16) -> OsString {
     }
 
     // Push it onto the list.
-    let ptr = ptr as *const u16;
     let buf = slice::from_raw_parts(ptr, len as usize);
     OsStringExt::from_wide(buf)
 }

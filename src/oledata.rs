@@ -74,7 +74,7 @@ impl OleData {
     }
     pub fn responds_to<S: AsRef<OsStr>>(&self, method: S) -> bool {
         let method = method.to_wide_null();
-        let methods = vec![PCWSTR(method.as_ptr())];
+        let methods = [PCWSTR(method.as_ptr())];
         let mut dispids = 0;
 
         unsafe {
@@ -171,7 +171,10 @@ impl OleData {
     pub fn ole_method_help<S: AsRef<OsStr>>(&self, cmdname: S) -> Result<OleMethodData> {
         let typeinfo = self.typeinfo_from_ole();
         let Ok(typeinfo) = typeinfo else {
-            return Err(Error::Custom(format!("failed to get ITypeInfo: {}", typeinfo.err().unwrap())));
+            return Err(Error::Custom(format!(
+                "failed to get ITypeInfo: {}",
+                typeinfo.err().unwrap()
+            )));
         };
         let obj = OleMethodData::from_typeinfo(typeinfo, &cmdname)?;
 

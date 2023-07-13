@@ -9,10 +9,10 @@ use windows::{
         Com::{
             CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage,
             CoInitializeEx, CoUninitialize, ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER,
-            CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CO_MTA_USAGE_COOKIE, TYPEDESC, VT_PTR,
-            VT_SAFEARRAY,
+            CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CO_MTA_USAGE_COOKIE, TYPEDESC,
         },
         Ole::{OleInitialize, OleUninitialize},
+        Variant::{VT_PTR, VT_SAFEARRAY},
     },
 };
 

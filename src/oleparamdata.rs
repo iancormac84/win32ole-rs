@@ -144,17 +144,9 @@ fn oleparam_ole_param_from_index(
     let func_desc = unsafe { typeinfo.GetFuncDesc(method_index) }?;
     let func_desc = NonNull::new(func_desc).unwrap();
 
-    let mut len = 0;
-    let cmaxnames = unsafe { func_desc.as_ref() }.cParams + 1;
+    let mut cmaxnames = unsafe { func_desc.as_ref() }.cParams as u32 + 1;
     let mut bstrs = Vec::with_capacity(cmaxnames as usize);
-    let result = unsafe {
-        typeinfo.GetNames(
-            func_desc.as_ref().memid,
-            bstrs.as_mut_ptr(),
-            cmaxnames as u32,
-            &mut len,
-        )
-    };
+    let result = unsafe { typeinfo.GetNames(func_desc.as_ref().memid, &mut bstrs, &mut cmaxnames) };
     println!("Inside oleparam_ole_param_from_index call");
     if let Err(error) = result {
         unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
@@ -163,9 +155,12 @@ fn oleparam_ole_param_from_index(
         )));
     }
     bstrs.remove(0);
-    if param_index < 1 || len <= param_index as u32 {
+    if param_index < 1 || bstrs.len() as u32 <= param_index as u32 {
         unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
-        return Err(Error::Custom(format!("index of param must be in 1..{len}")));
+        return Err(Error::Custom(format!(
+            "index of param must be in 1..{}",
+            bstrs.len()
+        )));
     }
 
     Ok(OleParamData {

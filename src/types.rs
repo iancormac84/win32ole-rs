@@ -311,18 +311,18 @@ impl<'a> Iterator for Variables<'a> {
             self.index += 1;
             return Some(Err(var_desc.unwrap_err().into()));
         };
-        let mut len = 0;
-        let mut rgbstrnames = BSTR::default();
+        let mut rgbstrnames = Vec::with_capacity(1);
+        let mut len = 1;
         let result = unsafe {
             self.typeinfo
-                .GetNames((*var_desc).memid, &mut rgbstrnames, 1, &mut len)
+                .GetNames((*var_desc).memid, &mut rgbstrnames, &mut len)
         };
         self.index += 1;
         if let Err(error) = result {
             unsafe { self.typeinfo.ReleaseVarDesc(var_desc) };
             Some(Err(error.into()))
         } else {
-            let name = match String::try_from(rgbstrnames) {
+            let name = match String::try_from(&rgbstrnames[0]) {
                 Ok(name) => name,
                 Err(error) => return Some(Err(error.into())),
             };

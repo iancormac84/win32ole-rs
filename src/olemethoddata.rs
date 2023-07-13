@@ -14,9 +14,12 @@ use std::{
 };
 use windows::{
     core::{BSTR, PCWSTR},
-    Win32::System::Com::{
-        ITypeInfo, FUNCDESC, FUNCKIND, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET,
-        INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR, TYPEDESC, VARENUM,
+    Win32::System::{
+        Com::{
+            ITypeInfo, FUNCDESC, FUNCKIND, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET,
+            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR, TYPEDESC,
+        },
+        Variant::VARENUM,
     },
 };
 
@@ -205,8 +208,8 @@ impl OleMethodData {
             if referenced_type.is_source() {
                 let name = referenced_type.name();
                 let Ok(name) = name else {
-                        continue;
-                    };
+                    continue;
+                };
                 if name == self.name {
                     event = true;
                     break;
@@ -222,16 +225,14 @@ impl OleMethodData {
         self.index
     }
     pub fn params(&self) -> Vec<Result<OleParamData>> {
-        let mut len = 0;
         let cparams = unsafe { self.func_desc.as_ref().cParams };
-        let cmaxnames = cparams + 1;
-        let mut rgbstrnames = vec![BSTR::default(); cmaxnames as usize];
+        let mut cmaxnames = cparams as u32 + 1;
+        let mut rgbstrnames = Vec::with_capacity(cmaxnames as usize);
         let result = unsafe {
             self.typeinfo.GetNames(
                 self.func_desc.as_ref().memid,
-                rgbstrnames.as_mut_ptr(),
-                cmaxnames as u32,
-                &mut len,
+                &mut rgbstrnames,
+                &mut cmaxnames,
             )
         };
         if result.is_err() {
@@ -240,7 +241,7 @@ impl OleMethodData {
         let mut params = vec![];
 
         if cparams > 0 {
-            for i in 1..len {
+            for i in 1..rgbstrnames.len() as u32 {
                 let param = OleParamData::make(
                     self,
                     self.index,
