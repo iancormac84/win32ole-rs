@@ -269,11 +269,9 @@ fn ole_show_help_<S: AsRef<OsStr>>(helpfile: S, helpcontext: usize) -> Result<HW
 }*/
 
 fn ole_excepinfo2msg(exinfo: &mut EXCEPINFO) -> String {
-    let hr = if let Some(func) = exinfo.pfnDeferredFillIn {
-        Some(unsafe { func(&mut *exinfo) })
-    } else {
-        None
-    };
+    if let Some(func) = exinfo.pfnDeferredFillIn {
+        let _ = unsafe { func(&mut *exinfo) };
+    }
 
     let s = &exinfo.bstrSource;
     let source = if !s.is_empty() {
