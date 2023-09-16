@@ -157,7 +157,7 @@ impl OleData {
     }
     pub fn ole_query_interface<S: AsRef<OsStr>>(&self, str_iid: S) -> Result<OleData> {
         let iid = get_class_id(str_iid)?;
-        let mut dispatch_interface = ptr::null();
+        let mut dispatch_interface = ptr::null_mut();
         let result = unsafe { self.dispatch.query(&iid, &mut dispatch_interface) };
         let result = result.ok();
         if let Err(error) = result {
