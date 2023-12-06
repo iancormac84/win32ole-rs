@@ -2,16 +2,13 @@ use std::{
     ffi::OsStr,
     iter::zip,
     path::PathBuf,
-    ptr::{self, NonNull},
+    ptr::{self, NonNull}, io,
 };
 
 use crate::{
     error::{Error, OleError, Result},
     types::{OleClassNames, TypeInfos},
-    util::{
-        conv::{os_string_from_ptr, ToWide},
-        RegKey,
-    },
+    util::conv::{os_string_from_ptr, ToWide},
     OleTypeData,
 };
 use windows::{
@@ -26,10 +23,10 @@ use windows::{
                 LoadTypeLibEx, QueryPathOfRegTypeLib, LIBFLAG_FHIDDEN, LIBFLAG_FRESTRICTED,
                 REGKIND_NONE,
             },
-            Registry::HKEY_CLASSES_ROOT,
         },
     },
 };
+use winreg::{RegKey, enums::HKEY_CLASSES_ROOT};
 
 fn isdigit(c: char) -> bool {
     c.is_ascii_digit()
@@ -313,7 +310,7 @@ fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
                 }
                 let hversion = hversion?;
                 fver = atof(&version);
-                let typelib = hversion.get_value("");
+                let typelib: io::Result<String> = hversion.get_value("");
                 if typelib.is_err() {
                     continue;
                 } else {
@@ -346,7 +343,7 @@ fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
 fn reg_get_typelib_file_path(hkey: RegKey) -> Option<Result<PathBuf>> {
     let hwin64 = hkey.open_subkey("win64");
     if let Ok(hwin64) = hwin64 {
-        let path = hwin64.get_value("");
+        let path: io::Result<String> = hwin64.get_value("");
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
@@ -354,7 +351,7 @@ fn reg_get_typelib_file_path(hkey: RegKey) -> Option<Result<PathBuf>> {
 
     let hwin32 = hkey.open_subkey("win32");
     if let Ok(hwin32) = hwin32 {
-        let path = hwin32.get_value("");
+        let path: io::Result<String> = hwin32.get_value("");
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
@@ -362,7 +359,7 @@ fn reg_get_typelib_file_path(hkey: RegKey) -> Option<Result<PathBuf>> {
 
     let hwin16 = hkey.open_subkey("win16");
     if let Ok(hwin16) = hwin16 {
-        let path = hwin16.get_value("");
+        let path: io::Result<String> = hwin16.get_value("");
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
@@ -375,7 +372,7 @@ fn typelib_file_from_clsid<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
 
     let hclsid = hroot.open_subkey(ole)?;
     let htypelib = hclsid.open_subkey("InprocServer32");
-    let typelib = if let Ok(htypelib) = htypelib {
+    let typelib: io::Result<String> = if let Ok(htypelib) = htypelib {
         htypelib.get_value("")
     } else {
         hclsid.get_value("InprocServer32")
@@ -389,7 +386,7 @@ fn typelib_file_from_clsid<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
             let path = PathBuf::from(unsafe { typelib_pcwstr.to_string()? });
             Ok(path)
         }
-        Err(error) => Err(error),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -467,7 +464,7 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
             let Ok(hversion) = hversion else {
                 continue;
             };
-            let tlib = hversion.get_value("");
+            let tlib: io::Result<String> = hversion.get_value("");
             let Ok(tlib) = tlib else {
                 continue;
             };
