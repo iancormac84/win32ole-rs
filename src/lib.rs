@@ -1,6 +1,6 @@
-use crate::{error::Result, util::RegKey};
-use std::sync::LazyLock;
-use windows::Win32::System::Registry::{HKEY_CLASSES_ROOT, HKEY_LOCAL_MACHINE};
+use std::{io, sync::LazyLock};
+use crate::error::Result;
+use winreg::{RegKey, enums::{HKEY_LOCAL_MACHINE, HKEY_CLASSES_ROOT}};
 
 pub mod error;
 mod oledata;
@@ -31,7 +31,7 @@ static G_RUNNING_NANO: LazyLock<bool> = LazyLock::new(|| {
     let hsubkey = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels");
     if let Ok(hsubkey) = hsubkey {
-        let result = hsubkey.get_value("NanoServer");
+        let result: io::Result<String> = hsubkey.get_value("NanoServer");
         if result.is_ok() {
             return true;
         }
@@ -49,13 +49,13 @@ pub fn progids() -> Result<Vec<String>> {
         if let Ok(hclsid) = hclsid {
             match hclsid.open_subkey("ProgID") {
                 Ok(prog_id_key) => {
-                    let val: Result<String> = prog_id_key.get_value("");
+                    let val: io::Result<String> = prog_id_key.get_value("");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
                 Err(_error) => {
-                    let val: Result<String> = hclsid.get_value("ProgID");
+                    let val: io::Result<String> = hclsid.get_value("ProgID");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
@@ -63,13 +63,13 @@ pub fn progids() -> Result<Vec<String>> {
             }
             match hclsid.open_subkey("VersionIndependentProgID") {
                 Ok(version_independent_prog_id_key) => {
-                    let val: Result<String> = version_independent_prog_id_key.get_value("");
+                    let val: io::Result<String> = version_independent_prog_id_key.get_value("");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
                 Err(_error) => {
-                    let val: Result<String> = hclsid.get_value("VersionIndependentProgID");
+                    let val: io::Result<String> = hclsid.get_value("VersionIndependentProgID");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
@@ -94,7 +94,8 @@ pub fn typelibs() -> Result<Vec<Result<OleTypeLibData>>> {
                 let version = version_or_error?;
                 let hversion = hguid.open_subkey(&version);
                 if let Ok(hversion) = hversion {
-                    let name = if let Ok(name) = hversion.get_value("") {
+                    let name: io::Result<String> = hversion.get_value("");
+                    let name = if let Ok(name) = name {
                         Ok(name)
                     } else {
                         hversion.get_value(&version)

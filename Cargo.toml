@@ -20,3 +20,7 @@ features = [
     "Win32_System_Variant",
     "Win32_UI_WindowsAndMessaging"
 ]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+winreg = "0.52"
