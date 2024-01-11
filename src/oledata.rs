@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, ptr};
 
 use windows::{
-    core::{ComInterface, Interface, BSTR, GUID, PCWSTR},
+    core::{Interface, BSTR, GUID, PCWSTR},
     Win32::{
         Globalization::GetUserDefaultLCID,
         System::Com::{

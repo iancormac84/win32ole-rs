@@ -2,17 +2,20 @@ use crate::{
     error::{OleError, Result},
     ToWide, G_RUNNING_NANO,
 };
-use std::{ffi::OsStr, ptr};
+use std::{ffi::OsStr, marker::PhantomData, ptr};
 use windows::{
-    core::{ComInterface, BSTR, GUID, PCWSTR},
-    Win32::System::{
-        Com::{
-            CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage,
-            CoInitializeEx, CoUninitialize, ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER,
-            CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CO_MTA_USAGE_COOKIE, TYPEDESC,
+    core::{Interface, BSTR, GUID, PCWSTR},
+    Win32::{
+        Foundation::RPC_E_CHANGED_MODE,
+        System::{
+            Com::{
+                CLSIDFromProgID, CLSIDFromString, CoCreateInstance, CoIncrementMTAUsage,
+                CoInitializeEx, CoUninitialize, ITypeInfo, ITypeLib, CLSCTX_INPROC_SERVER,
+                CLSCTX_LOCAL_SERVER, COINIT_MULTITHREADED, CO_MTA_USAGE_COOKIE, TYPEDESC,
+            },
+            Ole::{OleInitialize, OleUninitialize},
+            Variant::{VT_PTR, VT_SAFEARRAY},
         },
-        Ole::{OleInitialize, OleUninitialize},
-        Variant::{VT_PTR, VT_SAFEARRAY},
     },
 };
 
@@ -34,11 +37,18 @@ thread_local!(static OLE_INITIALIZED: OleInitialized = {
         } else {
             OleInitialize(None)
         };
-        if let Err(error) = result {
-            let runtime_error = OleError::runtime(error, "failed: OLE initialization");
-            panic!("{runtime_error}");
+        match result.clone().map_err(|e| e.code()) {
+            Ok(_) | Err(RPC_E_CHANGED_MODE) => {
+                OleInitialized {
+                    result,
+                    _ptr: PhantomData,
+                }
+            },
+            Err(error) => {
+                let runtime_error = OleError::runtime(error, "failed: OLE initialization");
+                panic!("{runtime_error}");
+            }
         }
-        OleInitialized(ptr::null_mut())
     }
 });
 
@@ -46,15 +56,20 @@ thread_local!(static OLE_INITIALIZED: OleInitialized = {
 ///
 // We store a raw pointer because it's the only way at the moment to remove `Send`/`Sync` from the
 // object.
-struct OleInitialized(*mut ());
+struct OleInitialized {
+    result: windows::core::Result<()>,
+    _ptr: PhantomData<*mut ()>,
+}
 
 impl Drop for OleInitialized {
     #[inline]
     fn drop(&mut self) {
-        if *G_RUNNING_NANO {
-            unsafe { CoUninitialize() };
-        } else {
-            unsafe { OleUninitialize() };
+        if self.result.is_ok() {
+            if *G_RUNNING_NANO {
+                unsafe { CoUninitialize() };
+            } else {
+                unsafe { OleUninitialize() };
+            }
         }
     }
 }
@@ -84,12 +99,12 @@ pub fn get_class_id<S: AsRef<OsStr>>(s: S) -> Result<GUID> {
     }
 }
 
-pub fn create_instance<T: ComInterface>(clsid: &GUID) -> Result<T> {
+pub fn create_instance<T: Interface>(clsid: &GUID) -> Result<T> {
     let flags = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER;
     unsafe { Ok(CoCreateInstance(clsid, None, flags)?) }
 }
 
-pub fn create_com_object<S: AsRef<OsStr>, T: ComInterface>(s: S) -> Result<T> {
+pub fn create_com_object<S: AsRef<OsStr>, T: Interface>(s: S) -> Result<T> {
     ole_initialized();
     let class_id = get_class_id(s)?;
 

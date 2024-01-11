@@ -311,8 +311,8 @@ impl<'a> Iterator for Variables<'a> {
             self.index += 1;
             return Some(Err(var_desc.unwrap_err().into()));
         };
-        let mut rgbstrnames = Vec::with_capacity(1);
-        let mut len = 1;
+        let mut rgbstrnames = vec![BSTR::default(); 1];
+        let mut len = 0;
         let result = unsafe {
             self.typeinfo
                 .GetNames((*var_desc).memid, &mut rgbstrnames, &mut len)

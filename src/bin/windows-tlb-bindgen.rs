@@ -119,9 +119,9 @@ where
                             _ => unreachable!(),
                         };
 
-                        write!(
+                        writeln!(
                             out,
-                            "pub const {}: {type_name} = {type_name}({real_value}{wkt_str});\n",
+                            "pub const {}: {type_name} = {type_name}({real_value}{wkt_str});",
                             member.name()
                         )?;
                     }

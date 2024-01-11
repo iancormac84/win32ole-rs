@@ -121,7 +121,7 @@ impl OleTypeLibData {
                 let tlib_attr = NonNull::new(tlib_attr).unwrap();
                 Ok(OleTypeLibData {
                     typelib,
-                    name: name.unwrap_or(String::new()),
+                    name: name.unwrap_or_default(),
                     tlib_attr,
                 })
             } else {
@@ -152,7 +152,7 @@ impl OleTypeLibData {
                 let tlib_attr = NonNull::new(tlib_attr).unwrap();
                 Ok(OleTypeLibData {
                     typelib,
-                    name: name.unwrap_or(String::new()),
+                    name: name.unwrap_or_default(),
                     tlib_attr,
                 })
             } else {
@@ -183,7 +183,7 @@ impl OleTypeLibData {
                 let tlib_attr = NonNull::new(tlib_attr).unwrap();
                 Ok(OleTypeLibData {
                     typelib,
-                    name: name.unwrap_or(String::new()),
+                    name: name.unwrap_or_default(),
                     tlib_attr,
                 })
             } else {
@@ -479,7 +479,7 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
                     let tlib_attr = NonNull::new(tlib_attr).unwrap();
                     maybe_oletypelibdata = Some(OleTypeLibData {
                         typelib,
-                        name: name.unwrap_or(String::new()),
+                        name: name.unwrap_or_default(),
                         tlib_attr,
                     });
                     found = true;
@@ -547,7 +547,7 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
             let tlib_attr = NonNull::new(tlib_attr).unwrap();
             maybe_oletypelibdata = Some(OleTypeLibData {
                 typelib,
-                name: name.unwrap_or(String::new()),
+                name: name.unwrap_or_default(),
                 tlib_attr,
             });
         }
