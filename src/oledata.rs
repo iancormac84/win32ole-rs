@@ -5,8 +5,8 @@ use windows::{
     Win32::{
         Globalization::GetUserDefaultLCID,
         System::Com::{
-            IDispatch, ITypeInfo, ITypeLib, EXCEPINFO, INVOKE_FUNC, INVOKE_PROPERTYGET,
-            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF,
+            IDispatch, ITypeInfo, ITypeLib, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
+            INVOKE_PROPERTYPUTREF,
         },
     },
 };
@@ -267,44 +267,3 @@ fn ole_show_help_<S: AsRef<OsStr>>(helpfile: S, helpcontext: usize) -> Result<HW
     }
     Ok(hwnd)
 }*/
-
-fn ole_excepinfo2msg(exinfo: &mut EXCEPINFO) -> String {
-    if let Some(func) = exinfo.pfnDeferredFillIn {
-        let _ = unsafe { func(&mut *exinfo) };
-    }
-
-    let s = &exinfo.bstrSource;
-    let source = if !s.is_empty() {
-        s.to_string()
-    } else {
-        String::new()
-    };
-    let d = &exinfo.bstrDescription;
-    let description = if !d.is_empty() {
-        d.to_string()
-    } else {
-        String::new()
-    };
-    let mut msg = if exinfo.wCode == 0 {
-        format!("\n    OLE error code: {} in ", exinfo.scode)
-    } else {
-        format!("\n    OLE error code: {} in ", exinfo.wCode)
-    };
-
-    if !source.is_empty() {
-        msg.push_str(&source);
-    } else {
-        msg.push_str("<Unknown>");
-    }
-    msg.push_str("\n      ");
-    if !description.is_empty() {
-        msg.push_str(&description);
-    } else {
-        msg.push_str("<No Description>");
-    }
-
-    let _ = exinfo.bstrSource;
-    let _ = exinfo.bstrDescription;
-
-    msg
-}

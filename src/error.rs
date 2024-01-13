@@ -6,7 +6,7 @@ use std::{
     string::FromUtf16Error,
 };
 
-use windows::core::HRESULT;
+use windows::{core::HRESULT, Win32::System::Com::EXCEPINFO};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -22,6 +22,11 @@ pub enum Error {
     Generic(&'static str),
     Custom(String),
     Ole(OleError),
+    Exception(EXCEPINFO),
+    IDispatchArgument {
+        error_type: ComArgumentErrorType,
+        arg_err: u32,
+    },
 }
 
 #[derive(Debug)]
@@ -82,6 +87,26 @@ impl fmt::Display for OleError {
 impl From<OleError> for Error {
     fn from(err: OleError) -> Error {
         Error::Ole(err)
+    }
+}
+
+#[derive(Debug)]
+pub enum ComArgumentErrorType {
+    TypeMismatch,
+    ParameterNotFound,
+}
+
+impl fmt::Display for ComArgumentErrorType {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            ComArgumentErrorType::TypeMismatch => write!(
+                fmt,
+                "The value's type does not match the expected type for the parameter"
+            ),
+            ComArgumentErrorType::ParameterNotFound => {
+                write!(fmt, "A required parameter was missing")
+            }
+        }
     }
 }
 
@@ -147,6 +172,56 @@ impl fmt::Display for Error {
             Generic(ref err) => err.fmt(fmt),
             Custom(ref err) => err.fmt(fmt),
             Ole(ref err) => err.fmt(fmt),
+            Exception(excepinfo) => writeln!(fmt, "{}", ole_excepinfo2msg(excepinfo)),
+            IDispatchArgument {
+                error_type,
+                arg_err,
+            } => writeln!(
+                fmt,
+                "COM argument error {error_type} for argument {arg_err}"
+            ),
         }
     }
+}
+
+fn ole_excepinfo2msg(excepinfo: &EXCEPINFO) -> String {
+    let mut excepinfo = excepinfo.clone();
+    if let Some(func) = excepinfo.pfnDeferredFillIn {
+        let _ = unsafe { func(&mut excepinfo) };
+    }
+
+    let s = &excepinfo.bstrSource;
+    let source = if !s.is_empty() {
+        s.to_string()
+    } else {
+        String::new()
+    };
+    let d = &excepinfo.bstrDescription;
+    let description = if !d.is_empty() {
+        d.to_string()
+    } else {
+        String::new()
+    };
+    let mut msg = if excepinfo.wCode == 0 {
+        format!("\n    OLE error code: {} in ", excepinfo.scode)
+    } else {
+        format!("\n    OLE error code: {} in ", excepinfo.wCode)
+    };
+
+    if !source.is_empty() {
+        msg.push_str(&source);
+    } else {
+        msg.push_str("<Unknown>");
+    }
+    msg.push_str("\n      ");
+    if !description.is_empty() {
+        msg.push_str(&description);
+    } else {
+        msg.push_str("<No Description>");
+    }
+
+    let _ = excepinfo.bstrSource;
+    let _ = excepinfo.bstrDescription;
+
+    msg
 }
