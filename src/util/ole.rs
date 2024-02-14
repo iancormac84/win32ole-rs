@@ -33,7 +33,7 @@ pub fn init_runtime() -> windows::core::Result<CO_MTA_USAGE_COOKIE> {
 thread_local!(static OLE_INITIALIZED: OleInitialized = {
     unsafe {
         let result = if *G_RUNNING_NANO {
-            CoInitializeEx(None, COINIT_MULTITHREADED)
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok()
         } else {
             OleInitialize(None)
         };
