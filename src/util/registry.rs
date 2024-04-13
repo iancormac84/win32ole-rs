@@ -8,7 +8,7 @@ use std::{
 use windows::{
     core::{PCWSTR, PWSTR},
     Win32::{
-        Foundation::{ERROR_BAD_FILE_TYPE, ERROR_INVALID_BLOCK},
+        Foundation::{ERROR_BAD_FILE_TYPE, ERROR_INVALID_BLOCK, WIN32_ERROR},
         System::{
             Environment::ExpandEnvironmentStringsW,
             Registry::{
@@ -222,8 +222,8 @@ impl RegKey {
         let mut new_hkey = HKEY::default();
         match unsafe { RegOpenKeyExW(self.hkey, PCWSTR(c_path.as_ptr()), 0, perms, &mut new_hkey) }
         {
-            Ok(()) => Ok(RegKey { hkey: new_hkey }),
-            Err(err) => Err(err.into()),
+            WIN32_ERROR(0) => Ok(RegKey { hkey: new_hkey }),
+            err => Err(err.into()),
         }
     }
 
@@ -266,7 +266,7 @@ impl RegKey {
                     Some(&mut buf_len),
                 )
             } {
-                Ok(()) => {
+                WIN32_ERROR(0) => {
                     // ERROR_SUCCESS
                     unsafe {
                         buf.set_len(buf_len as usize);
@@ -280,8 +280,8 @@ impl RegKey {
                         vtype: buf_type,
                     });
                 }
-                Err(err) => {
-                    if err.code().0 as u32 == 0x800700EA {
+                err => {
+                    if err.0 == 0x800700EA {
                         // ERROR_MORE_DATA
                         buf.reserve(buf_len as usize);
                     } else {
@@ -297,10 +297,9 @@ impl RegKey {
         if self.hkey.0 >= HKEY_CLASSES_ROOT.0 {
             return Ok(());
         };
-        if let Err(err) = unsafe { RegCloseKey(self.hkey) } {
-            Err(err.into())
-        } else {
-            Ok(())
+        match unsafe { RegCloseKey(self.hkey) } {
+            WIN32_ERROR(0) => Ok(()),
+            err => Err(err.into())
         }
     }
 
@@ -320,13 +319,13 @@ impl RegKey {
                 None,
             )
         } {
-            Ok(()) => match String::from_utf16(&name[..name_len as usize]) {
+            WIN32_ERROR(0) => match String::from_utf16(&name[..name_len as usize]) {
                 // ERROR_SUCCESS
                 Ok(s) => Some(Ok(s)),
                 Err(_) => Some(Err(windows::core::Error::from(ERROR_INVALID_BLOCK).into())),
             },
-            Err(err) => {
-                if err.code().0 as u32 == 0x80070103 {
+            err => {
+                if err.0 == 0x80070103 {
                     // ERROR_NO_MORE_ITEMS
                     None
                 } else {

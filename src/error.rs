@@ -6,7 +6,7 @@ use std::{
     string::FromUtf16Error,
 };
 
-use windows::{core::HRESULT, Win32::System::Com::EXCEPINFO};
+use windows::{core::HRESULT, Win32::{Foundation::WIN32_ERROR, System::Com::EXCEPINFO}};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -155,6 +155,12 @@ impl From<TryFromIntError> for Error {
 impl From<IntoStringError> for Error {
     fn from(err: IntoStringError) -> Self {
         Error::IntoString(err)
+    }
+}
+
+impl From<WIN32_ERROR> for Error {
+    fn from(err: WIN32_ERROR) -> Self {
+        Error::Windows(HRESULT::from_win32(err.0).into())
     }
 }
 
