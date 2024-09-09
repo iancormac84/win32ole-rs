@@ -6,7 +6,10 @@ use std::{
     string::FromUtf16Error,
 };
 
-use windows::{core::HRESULT, Win32::{Foundation::WIN32_ERROR, System::Com::EXCEPINFO}};
+use windows::{
+    core::HRESULT,
+    Win32::{Foundation::WIN32_ERROR, System::Com::EXCEPINFO},
+};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

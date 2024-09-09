@@ -1,18 +1,19 @@
 use std::{ffi::OsStr, ptr};
 
 use windows::{
-    core::{Interface, BSTR, GUID, PCWSTR},
+    core::{Interface, BSTR, GUID, PCWSTR, VARIANT},
     Win32::{
-        Globalization::GetUserDefaultLCID,
-        System::Com::{
-            IDispatch, ITypeInfo, ITypeLib, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-            INVOKE_PROPERTYPUTREF,
-        },
+        Foundation::{DISP_E_EXCEPTION, DISP_E_PARAMNOTFOUND, DISP_E_TYPEMISMATCH}, Globalization::GetUserDefaultLCID, System::{
+            Com::{
+                IDispatch, ITypeInfo, ITypeLib, DISPATCH_FLAGS, DISPATCH_METHOD, DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPPARAMS, EXCEPINFO, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF
+            },
+            Ole::DISPID_PROPERTYPUT,
+        }
     },
 };
 
 use crate::{
-    error::{Error, OleError, Result},
+    error::{ComArgumentErrorType, Error, OleError, Result},
     olemethoddata::{ole_methods_from_typeinfo, OleMethodData},
     types::OleClassNames,
     util::{
@@ -186,6 +187,80 @@ impl OleData {
                 cmdname.as_ref().to_str().unwrap()
             )))
         }
+    }
+
+    pub fn invoke<S: AsRef<OsStr> + Copy>(
+        &self,
+        name: S,
+        dp: &mut DISPPARAMS,
+        flags: DISPATCH_FLAGS,
+    ) -> Result<VARIANT> {
+        let ids = self.get_ids_of_names(&[name])?;
+            
+        let mut excep = EXCEPINFO::default();
+        let mut arg_err = 0;
+        let mut result = VARIANT::default();
+    
+        let res = unsafe {
+            self.dispatch.Invoke(
+                ids[0],
+                &GUID::zeroed(),
+                0x0800, /*LOCALE_SYSTEM_DEFAULT*/
+                flags,
+                dp,
+                Some(&mut result),
+                Some(&mut excep),
+                Some(&mut arg_err),
+            )
+        };
+    
+        match res {
+            Ok(()) => Ok(result),
+            Err(e) => Err(match e.code() {
+                DISP_E_EXCEPTION => Error::Exception(excep),
+                DISP_E_TYPEMISMATCH => Error::IDispatchArgument {
+                    error_type: ComArgumentErrorType::TypeMismatch,
+                    arg_err,
+                },
+                DISP_E_PARAMNOTFOUND => Error::IDispatchArgument {
+                    error_type: ComArgumentErrorType::ParameterNotFound,
+                    arg_err,
+                },
+                _ => e.into(),
+            }),
+        }
+    }
+
+    /// Get a property from a COM object
+    ///
+    pub fn get(&self, name: &str) -> Result<VARIANT> {
+        let mut dp = DISPPARAMS::default();
+        self.invoke(name, &mut dp, DISPATCH_PROPERTYGET)
+    }
+
+    /// Set a property on a COM object
+    ///
+    pub fn put(&self, name: &str, value: &mut VARIANT) -> Result<()> {
+        let mut dp = DISPPARAMS {
+            cArgs: 1,
+            rgvarg: value,
+            cNamedArgs: 1,
+            ..Default::default()
+        };
+        let mut id = DISPID_PROPERTYPUT;
+        dp.rgdispidNamedArgs = &mut id as *mut _;
+        self.invoke(name, &mut dp, DISPATCH_PROPERTYPUT)?;
+        Ok(())
+    }
+
+    /// Call a method on a COM object
+    ///
+    pub fn call(&self, name: &str, args: Vec<VARIANT>) -> Result<VARIANT> {
+        let mut dp = DISPPARAMS::default();
+        let args: Vec<VARIANT> = args.into_iter().rev().collect();
+        dp.cArgs = args.len() as u32;
+        dp.rgvarg = args.as_ptr() as *mut _;
+        self.invoke(name, &mut dp, DISPATCH_METHOD)
     }
 }
 

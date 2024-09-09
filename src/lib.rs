@@ -2,7 +2,6 @@ use crate::{error::Result, util::RegKey};
 use std::sync::LazyLock;
 use windows::Win32::System::Registry::{HKEY_CLASSES_ROOT, HKEY_LOCAL_MACHINE};
 
-mod dispatch;
 pub mod error;
 mod oledata;
 //mod oleeventdata;

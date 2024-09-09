@@ -299,7 +299,7 @@ impl RegKey {
         };
         match unsafe { RegCloseKey(self.hkey) } {
             WIN32_ERROR(0) => Ok(()),
-            err => Err(err.into())
+            err => Err(err.into()),
         }
     }
 
