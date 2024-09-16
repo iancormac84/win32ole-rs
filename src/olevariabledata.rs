@@ -1,10 +1,13 @@
 use std::ptr::{self, NonNull};
 
 use windows::{
-    core::{BSTR, VARIANT},
-    Win32::System::Com::{
-        ITypeInfo, TYPEDESC, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE, VARFLAG_FRESTRICTED,
-        VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
+    core::BSTR,
+    Win32::System::{
+        Com::{
+            ITypeInfo, TYPEDESC, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE,
+            VARFLAG_FRESTRICTED, VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
+        },
+        Variant::VARIANT,
     },
 };
 

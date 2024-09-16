@@ -1,14 +1,19 @@
 use std::{ffi::OsStr, ptr};
 
 use windows::{
-    core::{Interface, BSTR, GUID, PCWSTR, VARIANT},
+    core::{Interface, BSTR, GUID, PCWSTR},
     Win32::{
-        Foundation::{DISP_E_EXCEPTION, DISP_E_PARAMNOTFOUND, DISP_E_TYPEMISMATCH}, Globalization::GetUserDefaultLCID, System::{
+        Foundation::{DISP_E_EXCEPTION, DISP_E_PARAMNOTFOUND, DISP_E_TYPEMISMATCH},
+        Globalization::GetUserDefaultLCID,
+        System::{
             Com::{
-                IDispatch, ITypeInfo, ITypeLib, DISPATCH_FLAGS, DISPATCH_METHOD, DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPPARAMS, EXCEPINFO, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF
+                IDispatch, ITypeInfo, ITypeLib, DISPATCH_FLAGS, DISPATCH_METHOD,
+                DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPPARAMS, EXCEPINFO, INVOKE_FUNC,
+                INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF,
             },
             Ole::DISPID_PROPERTYPUT,
-        }
+            Variant::VARIANT,
+        },
     },
 };
 
@@ -196,11 +201,11 @@ impl OleData {
         flags: DISPATCH_FLAGS,
     ) -> Result<VARIANT> {
         let ids = self.get_ids_of_names(&[name])?;
-            
+
         let mut excep = EXCEPINFO::default();
         let mut arg_err = 0;
         let mut result = VARIANT::default();
-    
+
         let res = unsafe {
             self.dispatch.Invoke(
                 ids[0],
@@ -213,7 +218,7 @@ impl OleData {
                 Some(&mut arg_err),
             )
         };
-    
+
         match res {
             Ok(()) => Ok(result),
             Err(e) => Err(match e.code() {
