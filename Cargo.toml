@@ -22,5 +22,4 @@ features = [
 ]
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
 winreg = "0.52"
