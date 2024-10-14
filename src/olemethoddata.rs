@@ -9,8 +9,7 @@ use crate::{
     OleTypeData,
 };
 use std::{
-    ffi::OsStr,
-    ptr::{self, NonNull},
+    ffi::OsStr, ops::Deref, ptr::{self, NonNull}
 };
 use windows::{
     core::{BSTR, PCWSTR},
@@ -74,7 +73,7 @@ impl OleMethodData {
 
         for (i, method) in methods.enumerate() {
             if let Ok(method) = method {
-                if unsafe { fname_pcwstr.as_wide() } == method.name().as_wide() {
+                if unsafe { fname_pcwstr.as_wide() } == method.name().deref() {
                     let (typeinfo, func_desc, bstrname) = method.deconstruct();
 
                     let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
