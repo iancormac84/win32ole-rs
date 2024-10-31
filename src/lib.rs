@@ -1,6 +1,6 @@
-use std::{io, sync::LazyLock};
+use std::sync::LazyLock;
 use crate::error::Result;
-use winreg::{RegKey, enums::{HKEY_LOCAL_MACHINE, HKEY_CLASSES_ROOT}};
+use windows_registry::{LOCAL_MACHINE, CLASSES_ROOT};
 
 pub mod error;
 mod oledata;
@@ -28,10 +28,10 @@ pub use {
 };
 
 static G_RUNNING_NANO: LazyLock<bool> = LazyLock::new(|| {
-    let hsubkey = RegKey::predef(HKEY_LOCAL_MACHINE)
-        .open_subkey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels");
+    let hsubkey = LOCAL_MACHINE
+        .open("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels");
     if let Ok(hsubkey) = hsubkey {
-        let result: io::Result<String> = hsubkey.get_value("NanoServer");
+        let result = hsubkey.get_string("NanoServer");
         if result.is_ok() {
             return true;
         }
@@ -40,36 +40,36 @@ static G_RUNNING_NANO: LazyLock<bool> = LazyLock::new(|| {
 });
 
 pub fn progids() -> Result<Vec<String>> {
-    let hclsids = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("CLSID")?;
+    let hclsids = CLASSES_ROOT.open("CLSID")?;
     let mut progids = vec![];
 
-    for clsid_or_error in hclsids.enum_keys() {
-        let clsid = clsid_or_error?;
-        let hclsid = hclsids.open_subkey(&clsid);
+    let clsid_iter = hclsids.keys()?;
+    for clsid in clsid_iter {
+        let hclsid = hclsids.open(&clsid);
         if let Ok(hclsid) = hclsid {
-            match hclsid.open_subkey("ProgID") {
+            match hclsid.open("ProgID") {
                 Ok(prog_id_key) => {
-                    let val: io::Result<String> = prog_id_key.get_value("");
+                    let val = prog_id_key.get_string("");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
                 Err(_error) => {
-                    let val: io::Result<String> = hclsid.get_value("ProgID");
+                    let val = hclsid.get_string("ProgID");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
             }
-            match hclsid.open_subkey("VersionIndependentProgID") {
+            match hclsid.open("VersionIndependentProgID") {
                 Ok(version_independent_prog_id_key) => {
-                    let val: io::Result<String> = version_independent_prog_id_key.get_value("");
+                    let val = version_independent_prog_id_key.get_string("");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
                 Err(_error) => {
-                    let val: io::Result<String> = hclsid.get_value("VersionIndependentProgID");
+                    let val = hclsid.get_string("VersionIndependentProgID");
                     if let Ok(val) = val {
                         progids.push(val);
                     }
@@ -83,22 +83,22 @@ pub fn progids() -> Result<Vec<String>> {
 }
 
 pub fn typelibs() -> Result<Vec<Result<OleTypeLibData>>> {
-    let htypelib = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("TypeLib")?;
+    let htypelib = CLASSES_ROOT.open("TypeLib")?;
     let mut typelibs = vec![];
 
-    for guid_or_error in htypelib.enum_keys() {
-        let guid = guid_or_error?;
-        let hguid = htypelib.open_subkey(&guid);
+    let guid_iter = htypelib.keys()?;
+    for guid in guid_iter {
+        let hguid = htypelib.open(&guid);
         if let Ok(hguid) = hguid {
-            for version_or_error in hguid.enum_keys() {
-                let version = version_or_error?;
-                let hversion = hguid.open_subkey(&version);
+            let version_iter = hguid.keys()?;
+            for version in version_iter {
+                let hversion = hguid.open(&version);
                 if let Ok(hversion) = hversion {
-                    let name: io::Result<String> = hversion.get_value("");
+                    let name = hversion.get_string("");
                     let name = if let Ok(name) = name {
                         Ok(name)
                     } else {
-                        hversion.get_value(&version)
+                        hversion.get_string(&version)
                     };
                     if let Ok(name) = name {
                         let typelib = oletypelib_from_guid(&guid, &version);

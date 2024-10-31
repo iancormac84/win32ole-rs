@@ -1,8 +1,7 @@
 use std::{
-    ffi::OsStr,
     iter::zip,
     path::PathBuf,
-    ptr::{self, NonNull}, io,
+    ptr::{self, NonNull},
 };
 
 use crate::{
@@ -26,7 +25,7 @@ use windows::{
         },
     },
 };
-use winreg::{RegKey, enums::HKEY_CLASSES_ROOT};
+use windows_registry::{Key, CLASSES_ROOT};
 
 fn isdigit(c: char) -> bool {
     c.is_ascii_digit()
@@ -285,44 +284,45 @@ impl TryFrom<&ITypeInfo> for OleTypeLibData {
     }
 }
 
-fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
-    let htypelib = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("TypeLib")?;
+fn typelib_file_from_typelib<P: AsRef<str>>(ole: P) -> Result<PathBuf> {
+    let htypelib = CLASSES_ROOT.open("TypeLib")?;
     let mut found = false;
     let mut file = None;
 
-    for clsid_or_error in htypelib.enum_keys() {
+    let clsid_iter = htypelib.keys()?;
+    for clsid in clsid_iter {
         if found {
             break;
         }
-        let clsid = clsid_or_error?;
 
-        let hclsid = htypelib.open_subkey(clsid);
+        let hclsid = htypelib.open(clsid);
         if let Ok(hclsid) = hclsid {
             let mut fver = 0f64;
-            for version_or_error in hclsid.enum_keys() {
+
+            let version_iter = hclsid.keys()?;
+            for version in version_iter {
                 if found {
                     break;
                 }
-                let version = version_or_error?;
-                let hversion = hclsid.open_subkey(&version);
+                let hversion = hclsid.open(&version);
                 if hversion.is_err() || fver > atof(&version) {
                     continue;
                 }
                 let hversion = hversion?;
                 fver = atof(&version);
-                let typelib: io::Result<String> = hversion.get_value("");
+                let typelib = hversion.get_string("");
                 if typelib.is_err() {
                     continue;
                 } else {
                     let typelib = typelib?;
                     let ole = ole.as_ref();
-                    if typelib == ole.to_str().unwrap() {
-                        for lang_or_error in hversion.enum_keys() {
+                    if typelib == ole {
+                        let lang_iter = hversion.keys()?;
+                        for lang in lang_iter {
                             if found {
                                 break;
                             }
-                            let lang = lang_or_error?;
-                            let hlang = hversion.open_subkey(lang);
+                            let hlang = hversion.open(lang);
                             if let Ok(hlang) = hlang {
                                 file = reg_get_typelib_file_path(hlang);
                                 if let Some(ref file) = file {
@@ -340,26 +340,26 @@ fn typelib_file_from_typelib<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
     file.unwrap()
 }
 
-fn reg_get_typelib_file_path(hkey: RegKey) -> Option<Result<PathBuf>> {
-    let hwin64 = hkey.open_subkey("win64");
+fn reg_get_typelib_file_path(key: Key) -> Option<Result<PathBuf>> {
+    let hwin64 = key.open("win64");
     if let Ok(hwin64) = hwin64 {
-        let path: io::Result<String> = hwin64.get_value("");
+        let path = hwin64.get_string("");
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
     }
 
-    let hwin32 = hkey.open_subkey("win32");
+    let hwin32 = key.open("win32");
     if let Ok(hwin32) = hwin32 {
-        let path: io::Result<String> = hwin32.get_value("");
+        let path = hwin32.get_string("");
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
     }
 
-    let hwin16 = hkey.open_subkey("win16");
+    let hwin16 = key.open("win16");
     if let Ok(hwin16) = hwin16 {
-        let path: io::Result<String> = hwin16.get_value("");
+        let path = hwin16.get_string("");
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
@@ -367,15 +367,15 @@ fn reg_get_typelib_file_path(hkey: RegKey) -> Option<Result<PathBuf>> {
     None
 }
 
-fn typelib_file_from_clsid<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
-    let hroot = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("CLSID")?;
+fn typelib_file_from_clsid<P: AsRef<str>>(ole: P) -> Result<PathBuf> {
+    let hroot = CLASSES_ROOT.open("CLSID")?;
 
-    let hclsid = hroot.open_subkey(ole)?;
-    let htypelib = hclsid.open_subkey("InprocServer32");
-    let typelib: io::Result<String> = if let Ok(htypelib) = htypelib {
-        htypelib.get_value("")
+    let hclsid = hroot.open(ole)?;
+    let htypelib = hclsid.open("InprocServer32");
+    let typelib = if let Ok(htypelib) = htypelib {
+        htypelib.get_string("")
     } else {
-        hclsid.get_value("InprocServer32")
+        hclsid.get_string("InprocServer32")
     };
     match typelib {
         Ok(typelib) => {
@@ -390,7 +390,7 @@ fn typelib_file_from_clsid<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
     }
 }
 
-pub(crate) fn typelib_file<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
+pub(crate) fn typelib_file<P: AsRef<str>>(ole: P) -> Result<PathBuf> {
     let file = typelib_file_from_clsid(&ole);
     match file {
         Ok(file) => Ok(file),
@@ -400,23 +400,25 @@ pub(crate) fn typelib_file<P: AsRef<OsStr>>(ole: P) -> Result<PathBuf> {
 
 pub fn oletypelib_path(guid: &str, version: &str) -> Option<Result<PathBuf>> {
     let key = format!(r"TypeLib\{guid}\{version}");
-    let hkey = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey(key);
+    let hkey = CLASSES_ROOT.open(key);
     if let Ok(hkey) = hkey {
-        let mut iter = hkey.enum_keys();
-        loop {
-            match iter.next() {
-                None => {
-                    break None;
-                }
-                Some(lang_or_error) => {
-                    if let Ok(lang) = lang_or_error {
-                        let hlang = hkey.open_subkey(lang);
-                        if let Ok(hlang) = hlang {
-                            return reg_get_typelib_file_path(hlang);
+        match hkey.keys() {
+            Ok(mut lang_iter) => {
+                loop {
+                    match lang_iter.next() {
+                        None => {
+                            break None;
+                        }
+                        Some(lang) => {
+                            let hlang = hkey.open(lang);
+                            if let Ok(hlang) = hlang {
+                                return reg_get_typelib_file_path(hlang);
+                            }
                         }
                     }
-                }
-            }
+                }                
+            },
+            Err(error) => Some(Err(error.into())),
         }
     } else {
         None
@@ -440,31 +442,27 @@ pub fn oletypelib_from_guid(guid: &str, version: &str) -> Result<ITypeLib> {
 fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLibData> {
     let mut found = false;
     let mut maybe_oletypelibdata = None;
-    let htypelib = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("TypeLib")?;
+    let htypelib = CLASSES_ROOT.open("TypeLib")?;
 
-    for guid_or_error in htypelib.enum_keys() {
+    let guid_iter = htypelib.keys()?;
+    for guid in guid_iter {
         if found {
             break;
         }
-        let Ok(guid) = guid_or_error else {
-            continue;
-        };
-        let hguid = htypelib.open_subkey(&guid);
+        let hguid = htypelib.open(&guid);
         let Ok(hguid) = hguid else {
             continue;
         };
-        for version_or_error in hguid.enum_keys() {
+        let version_iter = hguid.keys()?;
+        for version in version_iter {
             if found {
                 break;
             }
-            let Ok(version) = version_or_error else {
-                continue;
-            };
-            let hversion = hguid.open_subkey(&version);
+            let hversion = hguid.open(&version);
             let Ok(hversion) = hversion else {
                 continue;
             };
-            let tlib: io::Result<String> = hversion.get_value("");
+            let tlib = hversion.get_string("");
             let Ok(tlib) = tlib else {
                 continue;
             };
@@ -499,16 +497,16 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
     let guid = args[0];
     let version_str = make_version_str(args[1], args[2]);
 
-    let htypelib = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey("TypeLib")?;
+    let htypelib = CLASSES_ROOT.open("TypeLib")?;
 
-    let hguid = htypelib.open_subkey(guid)?;
+    let hguid = htypelib.open(guid)?;
 
     let mut typelib_str = String::new();
     let mut version = String::new();
     if let Some(ref version_str) = version_str {
-        let hversion = hguid.open_subkey(version_str);
+        let hversion = hguid.open(version_str);
         if let Ok(hversion) = hversion {
-            let tlib = hversion.get_value("");
+            let tlib = hversion.get_string("");
             if let Ok(tlib) = tlib {
                 typelib_str = tlib;
                 version = version_str.to_string();
@@ -516,15 +514,13 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
         }
     } else {
         let mut fver = 0.0;
-        for ver_or_error in hguid.enum_keys() {
-            let Ok(ver) = ver_or_error else {
-                break;
-            };
-            let hversion = hguid.open_subkey(&ver);
+        let ver_iter = hguid.keys()?;
+        for ver in ver_iter {
+            let hversion = hguid.open(&ver);
             let Ok(hversion) = hversion else {
                 continue;
             };
-            let tlib = hversion.get_value("");
+            let tlib = hversion.get_string("");
             let Ok(tlib) = tlib else {
                 continue;
             };

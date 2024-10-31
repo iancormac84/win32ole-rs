@@ -21,4 +21,4 @@ features = [
 ]
 
 [dependencies]
-winreg = "0.52"
+windows-registry = { git = "https://github.com/microsoft/windows-rs.git" }

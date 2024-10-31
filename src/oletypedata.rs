@@ -11,7 +11,6 @@ use crate::{
     OleMethodData,
 };
 use std::{
-    ffi::OsStr,
     iter::zip,
     ptr::{self, NonNull},
 };
@@ -34,7 +33,7 @@ pub struct OleTypeData {
 }
 
 impl OleTypeData {
-    pub fn new<S: AsRef<OsStr>>(typelib: S, oleclass: S) -> Result<OleTypeData> {
+    pub fn new<S: AsRef<str>>(typelib: S, oleclass: S) -> Result<OleTypeData> {
         ole_initialized();
         let file = typelib_file(&typelib)?;
         let file_vec = file.to_wide_null();
@@ -45,8 +44,8 @@ impl OleTypeData {
             Some(typedata) => Ok(typedata),
             None => Err(Error::Custom(format!(
                 "`{}` not found in `{}`",
-                oleclass.as_ref().to_str().unwrap(),
-                typelib.as_ref().to_str().unwrap()
+                oleclass.as_ref(),
+                typelib.as_ref()
             ))),
         }
     }
@@ -265,7 +264,7 @@ impl TryFrom<ITypeInfo> for OleTypeData {
     }
 }
 
-fn oleclass_from_typelib<P: AsRef<OsStr>>(
+fn oleclass_from_typelib<P: AsRef<str>>(
     typelib: &ITypeLib,
     oleclass: P,
 ) -> Result<Option<OleTypeData>> {
@@ -280,7 +279,7 @@ fn oleclass_from_typelib<P: AsRef<OsStr>>(
             continue;
         };
 
-        if name == oleclass.as_ref().to_str().unwrap() {
+        if name == oleclass.as_ref() {
             let type_attr = unsafe { typeinfo.GetTypeAttr()? };
             let type_attr = NonNull::new(type_attr).unwrap();
 
