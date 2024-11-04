@@ -448,6 +448,7 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
     println!("2");
     let guid_iter = htypelib.keys()?;
     for guid in guid_iter {
+        println!("{guid}");
         if found {
             println!("7");
             break;
@@ -470,7 +471,9 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
             let Ok(tlib) = tlib else {
                 continue;
             };
+            println!("{tlib}");
             if typelib_str.as_ref() == tlib {
+                println!("We inside here");
                 let typelib = oletypelib_from_guid(&guid, &version);
                 if let Ok(typelib) = typelib {
                     let name = name_from_typelib(&typelib);
@@ -502,6 +505,7 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
 }
 
 fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
+    println!("But we reach in ya now, and args is {args:?}");
     let mut maybe_oletypelibdata = None;
     let guid = args[0];
     let version_str = make_version_str(args[1], args[2]);
@@ -613,8 +617,48 @@ fn ole_types_from_typelib(typelib: &ITypeLib) -> Vec<Result<OleTypeData>> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn test_initialize_with_REG_EXPAND_SZ() {
+    fn test_initialize_with_reg_expand_sz() {
         let tlib = super::OleTypeLibData::new1("Disk Management Snap-In Object Library");
         assert!(tlib.is_ok());
+    }
+
+    #[test]
+    fn test_various1() {
+        let tlib = super::OleTypeLibData::new1("Microsoft Excel 16.0 Object Library");
+        assert!(tlib.is_ok());
+        let tlib = tlib.unwrap();
+        assert_eq!(tlib.name(), "Microsoft Excel 16.0 Object Library");
+    }
+    
+    #[test]
+    fn test_various2() {
+        let tlib = super::OleTypeLibData::new1("{00020813-0000-0000-C000-000000000046}");
+        assert!(tlib.is_ok());
+        let tlib = tlib.unwrap();
+        assert_eq!(tlib.name(), "Microsoft Excel 16.0 Object Library");
+    }
+    
+    #[test]
+    fn test_various3() {
+        let tlib = super::OleTypeLibData::new2("{00020813-0000-0000-C000-000000000046}", 1.9);
+        assert!(tlib.is_ok());
+        let tlib = tlib.unwrap();
+        assert_eq!(tlib.name(), "Microsoft Excel 16.0 Object Library");
+    }
+
+    #[test]
+    fn test_various4() {
+        let tlib = super::OleTypeLibData::new3("{00020813-0000-0000-C000-000000000046}", "1", "9");
+        assert!(tlib.is_ok());
+        let tlib = tlib.unwrap();
+        assert_eq!(tlib.name(), "Microsoft Excel 16.0 Object Library");
+    }
+
+    #[test]
+    fn test_various5() {
+        let tlib = super::OleTypeLibData::new1("C:\\Windows\\SYSTEM32\\SHELL32.DLL");
+        assert!(tlib.is_ok());
+        let tlib = tlib.unwrap();
+        assert_eq!(tlib.name(), "Microsoft Shell Controls And Automation");
     }
 }
