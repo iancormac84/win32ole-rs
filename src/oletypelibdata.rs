@@ -442,17 +442,21 @@ pub fn oletypelib_from_guid(guid: &str, version: &str) -> Result<ITypeLib> {
 fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLibData> {
     let mut found = false;
     let mut maybe_oletypelibdata = None;
+    println!("1");
     let htypelib = CLASSES_ROOT.open("TypeLib")?;
 
+    println!("2");
     let guid_iter = htypelib.keys()?;
     for guid in guid_iter {
         if found {
+            println!("7");
             break;
         }
         let hguid = htypelib.open(&guid);
         let Ok(hguid) = hguid else {
             continue;
         };
+        println!("3");
         let version_iter = hguid.keys()?;
         for version in version_iter {
             if found {
@@ -470,8 +474,11 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
                 let typelib = oletypelib_from_guid(&guid, &version);
                 if let Ok(typelib) = typelib {
                     let name = name_from_typelib(&typelib);
+                    println!("4");
                     let tlib_attr = unsafe { typelib.GetLibAttr() }?;
+                    println!("5");
                     let tlib_attr = NonNull::new(tlib_attr).unwrap();
+                    println!("6");
                     maybe_oletypelibdata = Some(OleTypeLibData {
                         typelib,
                         name: name.unwrap_or_default(),
@@ -483,8 +490,10 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
         }
     }
     if let Some(typelibdata) = maybe_oletypelibdata {
+        println!("8a");
         Ok(typelibdata)
     } else {
+        println!("8");
         Err(Error::Custom(format!(
             "type library `{}` was not found",
             typelib_str.as_ref()
@@ -599,4 +608,13 @@ fn ole_types_from_typelib(typelib: &ITypeLib) -> Vec<Result<OleTypeData>> {
         classes.push(oletype);
     }
     classes
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_initialize_with_REG_EXPAND_SZ() {
+        let tlib = super::OleTypeLibData::new1("Disk Management Snap-In Object Library");
+        assert!(tlib.is_ok());
+    }
 }

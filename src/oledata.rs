@@ -347,3 +347,27 @@ fn ole_show_help_<S: AsRef<OsStr>>(helpfile: S, helpcontext: usize) -> Result<HW
     }
     Ok(hwnd)
 }*/
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_methods() {
+        let obj = super::OleData::new("Scripting.Dictionary");
+        assert!(obj.is_ok());
+        let obj = obj.unwrap();
+
+        let methods = obj.ole_methods();
+        assert!(methods.is_ok());
+        let methods = methods.unwrap();
+
+        let res: Vec<&super::OleMethodData> = methods.iter().filter_map(|m| {
+            if m.invoke_kind() == "PROPERTYPUTREF" {
+                Some(m)
+            } else {
+                None
+            }
+        }).collect();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].name(), "Item");
+    }
+}
