@@ -147,7 +147,6 @@ fn oleparam_ole_param_from_index(
     let mut cmaxnames = unsafe { func_desc.as_ref() }.cParams as u32 + 1;
     let mut bstrs = Vec::with_capacity(cmaxnames as usize);
     let result = unsafe { typeinfo.GetNames(func_desc.as_ref().memid, &mut bstrs, &mut cmaxnames) };
-    println!("Inside oleparam_ole_param_from_index call");
     if let Err(error) = result {
         unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
         return Err(Error::Custom(format!(

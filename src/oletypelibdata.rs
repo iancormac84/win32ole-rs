@@ -425,14 +425,11 @@ pub fn oletypelib_path(guid: &str, version: &str) -> Option<Result<PathBuf>> {
 pub fn oletypelib_from_guid(guid: &str, version: &str) -> Result<ITypeLib> {
     let path = oletypelib_path(guid, version);
     let Some(path) = path else {
-        println!("We gonna send an error HERE");
         return Err(windows::core::Error::from(E_UNEXPECTED).into());
     };
     let path = path?;
-    println!("path is {}", path.display());
     let result =
         unsafe { LoadTypeLibEx(PCWSTR::from_raw(path.to_wide_null().as_ptr()), REGKIND_NONE) };
-    println!("result is {result:?}");
     match result {
         Ok(typelib) => Ok(typelib),
         Err(error) => Err(error.into()),
@@ -442,22 +439,18 @@ pub fn oletypelib_from_guid(guid: &str, version: &str) -> Result<ITypeLib> {
 fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLibData> {
     let mut found = false;
     let mut maybe_oletypelibdata = None;
-    println!("1");
+
     let htypelib = CLASSES_ROOT.open("TypeLib")?;
 
-    println!("2");
     let guid_iter = htypelib.keys()?;
     for guid in guid_iter {
-        println!("{guid}");
         if found {
-            println!("7");
             break;
         }
         let hguid = htypelib.open(&guid);
         let Ok(hguid) = hguid else {
             continue;
         };
-        println!("3");
         let version_iter = hguid.keys()?;
         for version in version_iter {
             if found {
@@ -471,18 +464,13 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
             let Ok(tlib) = tlib else {
                 continue;
             };
-            println!("{tlib}");
+
             if typelib_str.as_ref() == tlib {
-                println!("We inside here, about to get the typelib from the guid {guid} and the version {version}");
                 let typelib = oletypelib_from_guid(&guid, &version);
                 if let Ok(typelib) = typelib {
-                    println!("We got a typelib");
                     let name = name_from_typelib(&typelib);
-                    println!("4");
                     let tlib_attr = unsafe { typelib.GetLibAttr() }?;
-                    println!("5");
                     let tlib_attr = NonNull::new(tlib_attr).unwrap();
-                    println!("6");
                     maybe_oletypelibdata = Some(OleTypeLibData {
                         typelib,
                         name: name.unwrap_or_default(),
@@ -494,10 +482,8 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
         }
     }
     if let Some(typelibdata) = maybe_oletypelibdata {
-        println!("8a");
         Ok(typelibdata)
     } else {
-        println!("8");
         Err(Error::Custom(format!(
             "type library `{}` was not found",
             typelib_str.as_ref()
@@ -506,7 +492,6 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
 }
 
 fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
-    println!("But we reach in ya now, and args is {args:?}");
     let mut maybe_oletypelibdata = None;
     let guid = args[0];
     let version_str = make_version_str(args[1], args[2]);
