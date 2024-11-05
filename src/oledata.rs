@@ -10,12 +10,11 @@ use windows::{
                 IDispatch, ITypeInfo, ITypeLib, DISPATCH_FLAGS, DISPATCH_METHOD,
                 DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPPARAMS, EXCEPINFO, INVOKE_FUNC,
                 INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF,
-            },
-            Ole::DISPID_PROPERTYPUT,
-            Variant::VARIANT,
+            }, Environment::ExpandEnvironmentStringsW, Ole::DISPID_PROPERTYPUT, Variant::VARIANT
         },
     },
 };
+use windows_registry::{Key, Type};
 
 use crate::{
     error::{ComArgumentErrorType, Error, OleError, Result},
@@ -115,6 +114,7 @@ impl OleData {
 
         let typeinfo = self.typeinfo_from_ole()?;
         methods.extend(ole_methods_from_typeinfo(typeinfo, mask)?);
+        println!("methods are {methods:?}");
         Ok(methods)
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
@@ -267,6 +267,23 @@ impl OleData {
         dp.rgvarg = args.as_ptr() as *mut _;
         self.invoke(name, &mut dp, DISPATCH_METHOD)
     }
+}
+
+pub unsafe fn reg_get_val<N: AsRef<PCWSTR>>(key: &Key, subkey: N) -> Result<String> {
+    let (ty, _) = key.raw_get_info(&subkey)?;
+    println!("We got ty {ty:?}");
+    let subkey = if subkey.as_ref().is_null() {"".to_string()} else { subkey.as_ref().to_string().unwrap()};
+    let data = key.get_string(&subkey)?;
+    println!("data is {data}");
+    if ty == Type::ExpandString {
+        let data_pcwstr = PCWSTR::from_raw(data.to_wide_null().as_ptr());
+        let len = ExpandEnvironmentStringsW(data_pcwstr, None);
+        let mut expanded_data = vec![0; len as usize + 1];
+        unsafe { ExpandEnvironmentStringsW(data_pcwstr, Some(&mut expanded_data)) };
+        let expanded_data_string = String::from_utf16_lossy(&expanded_data);
+        return Ok(expanded_data_string);
+    }
+    Ok(data)
 }
 
 /*pub enum HelpTarget<'a> {

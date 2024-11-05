@@ -5,10 +5,7 @@ use std::{
 };
 
 use crate::{
-    error::{Error, OleError, Result},
-    types::{OleClassNames, TypeInfos},
-    util::conv::{os_string_from_ptr, ToWide},
-    OleTypeData,
+    error::{Error, OleError, Result}, oledata::reg_get_val, types::{OleClassNames, TypeInfos}, util::conv::{os_string_from_ptr, ToWide}, OleTypeData
 };
 use windows::{
     core::{BSTR, GUID, PCWSTR},
@@ -310,7 +307,7 @@ fn typelib_file_from_typelib<P: AsRef<str>>(ole: P) -> Result<PathBuf> {
                 }
                 let hversion = hversion?;
                 fver = atof(&version);
-                let typelib = hversion.get_string("");
+                let typelib = unsafe { reg_get_val(&hversion, PCWSTR::null()) };
                 if typelib.is_err() {
                     continue;
                 } else {
@@ -343,7 +340,7 @@ fn typelib_file_from_typelib<P: AsRef<str>>(ole: P) -> Result<PathBuf> {
 fn reg_get_typelib_file_path(key: Key) -> Option<Result<PathBuf>> {
     let hwin64 = key.open("win64");
     if let Ok(hwin64) = hwin64 {
-        let path = hwin64.get_string("");
+        let path = unsafe { reg_get_val(&hwin64, PCWSTR::null()) };
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
@@ -351,7 +348,7 @@ fn reg_get_typelib_file_path(key: Key) -> Option<Result<PathBuf>> {
 
     let hwin32 = key.open("win32");
     if let Ok(hwin32) = hwin32 {
-        let path = hwin32.get_string("");
+        let path = unsafe { reg_get_val(&hwin32, PCWSTR::null()) };
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
@@ -359,7 +356,7 @@ fn reg_get_typelib_file_path(key: Key) -> Option<Result<PathBuf>> {
 
     let hwin16 = key.open("win16");
     if let Ok(hwin16) = hwin16 {
-        let path = hwin16.get_string("");
+        let path = unsafe { reg_get_val(&hwin16, PCWSTR::null()) };
         if let Ok(path) = path {
             return Some(Ok(PathBuf::from(path)));
         }
@@ -428,11 +425,14 @@ pub fn oletypelib_path(guid: &str, version: &str) -> Option<Result<PathBuf>> {
 pub fn oletypelib_from_guid(guid: &str, version: &str) -> Result<ITypeLib> {
     let path = oletypelib_path(guid, version);
     let Some(path) = path else {
+        println!("We gonna send an error HERE");
         return Err(windows::core::Error::from(E_UNEXPECTED).into());
     };
     let path = path?;
+    println!("path is {}", path.display());
     let result =
         unsafe { LoadTypeLibEx(PCWSTR::from_raw(path.to_wide_null().as_ptr()), REGKIND_NONE) };
+    println!("result is {result:?}");
     match result {
         Ok(typelib) => Ok(typelib),
         Err(error) => Err(error.into()),
@@ -467,15 +467,16 @@ fn oletypelib_search_registry<S: AsRef<str>>(typelib_str: S) -> Result<OleTypeLi
             let Ok(hversion) = hversion else {
                 continue;
             };
-            let tlib = hversion.get_string("");
+            let tlib = unsafe { reg_get_val(&hversion, PCWSTR::null()) };
             let Ok(tlib) = tlib else {
                 continue;
             };
             println!("{tlib}");
             if typelib_str.as_ref() == tlib {
-                println!("We inside here");
+                println!("We inside here, about to get the typelib from the guid {guid} and the version {version}");
                 let typelib = oletypelib_from_guid(&guid, &version);
                 if let Ok(typelib) = typelib {
+                    println!("We got a typelib");
                     let name = name_from_typelib(&typelib);
                     println!("4");
                     let tlib_attr = unsafe { typelib.GetLibAttr() }?;
@@ -519,7 +520,7 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
     if let Some(ref version_str) = version_str {
         let hversion = hguid.open(version_str);
         if let Ok(hversion) = hversion {
-            let tlib = hversion.get_string("");
+            let tlib = unsafe { reg_get_val(&hversion, PCWSTR::null()) };
             if let Ok(tlib) = tlib {
                 typelib_str = tlib;
                 version = version_str.to_string();
@@ -533,7 +534,7 @@ fn oletypelib_search_registry2(args: [&str; 3]) -> Result<OleTypeLibData> {
             let Ok(hversion) = hversion else {
                 continue;
             };
-            let tlib = hversion.get_string("");
+            let tlib = unsafe { reg_get_val(&hversion, PCWSTR::null()) };
             let Ok(tlib) = tlib else {
                 continue;
             };

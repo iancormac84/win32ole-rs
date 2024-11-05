@@ -1,6 +1,8 @@
 use std::sync::LazyLock;
 use crate::error::Result;
-use windows_registry::{LOCAL_MACHINE, CLASSES_ROOT};
+use oledata::reg_get_val;
+use windows::core::PCWSTR;
+use windows_registry::{CLASSES_ROOT, HSTRING, LOCAL_MACHINE};
 
 pub mod error;
 mod oledata;
@@ -49,13 +51,13 @@ pub fn progids() -> Result<Vec<String>> {
         if let Ok(hclsid) = hclsid {
             match hclsid.open("ProgID") {
                 Ok(prog_id_key) => {
-                    let val = prog_id_key.get_string("");
+                    let val = unsafe { reg_get_val(&prog_id_key, PCWSTR::null()) };
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
                 Err(_error) => {
-                    let val = hclsid.get_string("ProgID");
+                    let val = unsafe { reg_get_val(&hclsid, PCWSTR::from_raw(HSTRING::from("ProgID").as_ptr())) };
                     if let Ok(val) = val {
                         progids.push(val);
                     }
@@ -63,13 +65,13 @@ pub fn progids() -> Result<Vec<String>> {
             }
             match hclsid.open("VersionIndependentProgID") {
                 Ok(version_independent_prog_id_key) => {
-                    let val = version_independent_prog_id_key.get_string("");
+                    let val = unsafe { reg_get_val(&version_independent_prog_id_key, PCWSTR::null()) };
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
                 Err(_error) => {
-                    let val = hclsid.get_string("VersionIndependentProgID");
+                    let val = unsafe { reg_get_val(&hclsid, PCWSTR::from_raw(HSTRING::from("VersionIndependentProgID").as_ptr())) };
                     if let Ok(val) = val {
                         progids.push(val);
                     }
