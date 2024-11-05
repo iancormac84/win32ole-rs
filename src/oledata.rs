@@ -114,7 +114,6 @@ impl OleData {
 
         let typeinfo = self.typeinfo_from_ole()?;
         methods.extend(ole_methods_from_typeinfo(typeinfo, mask)?);
-        println!("methods are {methods:?}");
         Ok(methods)
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
