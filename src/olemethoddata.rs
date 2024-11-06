@@ -231,27 +231,32 @@ impl OleMethodData {
     }
     pub fn params(&self) -> Vec<Result<OleParamData>> {
         let cparams = unsafe { self.func_desc.as_ref().cParams };
-        let mut cmaxnames = cparams as u32 + 1;
-        let mut rgbstrnames = Vec::with_capacity(cmaxnames as usize);
+        println!("cparams is {cparams}");
+        let cmaxnames = cparams as u32 + 1;
+        let mut bstrs = Vec::with_capacity(cmaxnames as usize);
+        let mut len = 0;
         let result = unsafe {
             self.typeinfo.GetNames(
                 self.func_desc.as_ref().memid,
-                &mut rgbstrnames,
-                &mut cmaxnames,
+                &mut bstrs,
+                &mut len,
             )
         };
+        println!("len is {len}");
         if result.is_err() {
+            println!("result is error: {result:?}");
             return vec![];
         }
         let mut params = vec![];
 
+        println!("We are just about to compare cparams to 0");
         if cparams > 0 {
-            for i in 1..rgbstrnames.len() as u32 {
+            for i in 1..bstrs.len() as u32 {
                 let param = OleParamData::make(
                     self,
                     self.index,
                     i - 1,
-                    rgbstrnames[i as usize].to_string(),
+                    bstrs[i as usize].to_string(),
                 );
                 params.push(param);
             }
@@ -448,6 +453,9 @@ mod tests {
 
         println!("18");
         assert_eq!(m_namespace.dispid(), 1610743810);
+
+        assert!(m_invoke.offset_vtbl().is_ok());
+        assert_eq!(m_invoke.offset_vtbl().unwrap(), 48);
 
         println!("19");
         assert_eq!(m_open.size_params(), 1);
