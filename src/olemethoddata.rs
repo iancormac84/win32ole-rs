@@ -1,21 +1,20 @@
 use crate::{
-    error::Result,
+    error::{OleError, Result},
     oleparamdata::OleParamData,
-    types::{Methods, ReferencedTypes},
-    util::{conv::ToWide, ole::ole_typedesc2val},
+    util::ole::ole_typedesc2val,
     OleTypeData,
 };
 use std::{
     ffi::OsStr,
-    ops::Deref,
     ptr::{self, NonNull},
 };
 use windows::{
-    core::{BSTR, PCWSTR},
+    core::BSTR,
     Win32::System::{
         Com::{
-            ITypeInfo, FUNCDESC, FUNCKIND, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET,
-            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR, TYPEDESC,
+            ITypeInfo, FUNCDESC, FUNCKIND, IMPLTYPEFLAG_FSOURCE, INVOKEKIND, INVOKE_FUNC,
+            INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_COCLASS, TYPEATTR,
+            TYPEDESC,
         },
         Variant::VARENUM,
     },
@@ -24,10 +23,9 @@ use windows::{
 #[derive(Debug)]
 pub struct OleMethodData {
     owner_typeinfo: Option<ITypeInfo>,
-    owner_type_attr: Option<NonNull<TYPEATTR>>,
     typeinfo: ITypeInfo,
-    name: String,
     index: u32,
+    name: String,
     func_desc: NonNull<FUNCDESC>,
 }
 
@@ -39,62 +37,97 @@ impl OleMethodData {
         typeinfo: ITypeInfo,
         name: S,
     ) -> Result<Option<OleMethodData>> {
-        let type_attr = unsafe { typeinfo.GetTypeAttr()? };
-        let method = OleMethodData::maybe_find_and_create(None, &typeinfo, &name)?;
+        let type_attr = unsafe { typeinfo.GetTypeAttr() };
+        if let Err(error) = type_attr {
+            println!("We couldn't find type_attr");
+            return Err(OleError::interface(error.code(), "failed to GetTypeAttr").into());
+        }
+        let type_attr = type_attr.unwrap();
+        println!("About to call maybe_find_and_create");
+        let mut method = OleMethodData::maybe_find_and_create(None, &typeinfo, type_attr, &name);
         if method.is_some() {
+            println!("method was some");
             return Ok(method);
         }
-        let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
-        for referenced_type in referenced_types.filter_map(|t| t.ok()) {
-            let method = OleMethodData::maybe_find_and_create(
+
+        let cimpltypes = unsafe { (*type_attr).cImplTypes };
+        println!("cimpltypes is {cimpltypes}");
+        for index in 0..unsafe { (*type_attr).cImplTypes } {
+            if method.is_some() {
+                break;
+            }
+            let hreftype = unsafe { typeinfo.GetRefTypeOfImplType(index as u32) };
+            if hreftype.is_err() {
+                continue;
+            }
+            let hreftype = hreftype.unwrap();
+            let ref_type_info = unsafe { typeinfo.GetRefTypeInfo(hreftype) };
+            if ref_type_info.is_err() {
+                continue;
+            }
+            let ref_type_info = ref_type_info.unwrap();
+            method = OleMethodData::maybe_find_and_create(
                 Some(&typeinfo),
-                referenced_type.typeinfo(),
+                &ref_type_info,
+                type_attr,
                 &name,
             );
-            if let Ok(method) = method {
-                if method.is_some() {
-                    return Ok(method);
-                }
-            }
         }
 
-        Ok(None)
+        Ok(method)
     }
+
+    // This is pretty much the same as the Ruby implementation's ole_method_sub function.
     fn maybe_find_and_create<S: AsRef<OsStr>>(
         owner_typeinfo: Option<&ITypeInfo>,
         typeinfo: &ITypeInfo,
+        type_attr: *mut TYPEATTR,
         name: &S,
-    ) -> Result<Option<OleMethodData>> {
-        let methods = Methods::new(typeinfo)?;
+    ) -> Option<OleMethodData> {
+        let fname = name.as_ref().to_str().unwrap();
+        println!("We in here tryna find {fname} with type_attr being {:?}", type_attr);
+        let mut method = None;
 
-        let fname = name.to_wide_null();
-        let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
+        let cfuncs = unsafe { (*type_attr).cFuncs };
+        println!("cfuncs is {cfuncs}");
+        for index in 0..unsafe { (*type_attr).cFuncs } {
+            println!("index is {index}");
+            if method.is_some() {
+                break;
+            }
 
-        for (i, method) in methods.enumerate() {
-            if let Ok(method) = method {
-                if unsafe { fname_pcwstr.as_wide() } == method.name().deref() {
-                    let (typeinfo, func_desc, bstrname) = method.deconstruct();
-
-                    let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
-                        let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
-                        let type_attr = NonNull::new(type_attr).unwrap();
-                        Some(type_attr)
-                    } else {
-                        None
-                    };
-                    return Ok(Some(OleMethodData {
-                        owner_typeinfo: owner_typeinfo.cloned(),
-                        owner_type_attr,
-                        typeinfo,
-                        name: bstrname.to_string(),
-                        index: i as u32,
-                        func_desc,
-                    }));
-                }
+            let funcdesc = unsafe { typeinfo.GetFuncDesc(index as u32) };
+            if funcdesc.is_err() {
+                continue;
+            }
+            let funcdesc = funcdesc.unwrap();
+            let mut bstrname = BSTR::default();
+            let result = unsafe {
+                typeinfo.GetDocumentation(
+                    (*funcdesc).memid,
+                    Some(&mut bstrname),
+                    None,
+                    ptr::null_mut(),
+                    None,
+                )
+            };
+            println!("bstrname is {}", bstrname.to_string());
+            if result.is_err() {
+                continue;
+            }
+            if bstrname.to_string() == fname {
+                println!("There was a match");
+                method = Some(OleMethodData {
+                    owner_typeinfo: owner_typeinfo.cloned(),
+                    typeinfo: typeinfo.clone(),
+                    name: bstrname.to_string(),
+                    index: index as u32,
+                    func_desc: NonNull::new(funcdesc).unwrap(),
+                });
             }
         }
 
-        Ok(None)
+        method
     }
     pub fn typeinfo(&self) -> &ITypeInfo {
         &self.typeinfo
@@ -193,36 +226,6 @@ impl OleMethodData {
             "UNKNOWN"
         }
     }
-    pub fn is_event(&self) -> bool {
-        if self.owner_typeinfo.is_none() {
-            return false;
-        }
-        if self.owner_type_attr.is_none() {
-            return false;
-        }
-        if unsafe { self.owner_type_attr.unwrap().as_ref().typekind } != TKIND_COCLASS {
-            return false;
-        }
-        let mut event = false;
-        let referenced_types = ReferencedTypes::new(
-            self.owner_typeinfo.as_ref().unwrap(),
-            unsafe { self.owner_type_attr.unwrap().as_ref() },
-            self.index,
-        );
-        for referenced_type in referenced_types.filter_map(|t| t.ok()) {
-            if referenced_type.is_source() {
-                let name = referenced_type.name();
-                let Ok(name) = name else {
-                    continue;
-                };
-                if name == self.name {
-                    event = true;
-                    break;
-                }
-            }
-        }
-        event
-    }
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -230,17 +233,16 @@ impl OleMethodData {
         self.index
     }
     pub fn params(&self) -> Vec<Result<OleParamData>> {
+        println!("method name is {}", self.name);
+        println!("method index is {}", self.index);
         let cparams = unsafe { self.func_desc.as_ref().cParams };
         println!("cparams is {cparams}");
         let cmaxnames = cparams as u32 + 1;
         let mut bstrs = Vec::with_capacity(cmaxnames as usize);
         let mut len = 0;
         let result = unsafe {
-            self.typeinfo.GetNames(
-                self.func_desc.as_ref().memid,
-                &mut bstrs,
-                &mut len,
-            )
+            self.typeinfo
+                .GetNames(self.func_desc.as_ref().memid, &mut bstrs, &mut len)
         };
         println!("len is {len}");
         if result.is_err() {
@@ -252,12 +254,8 @@ impl OleMethodData {
         println!("We are just about to compare cparams to 0");
         if cparams > 0 {
             for i in 1..bstrs.len() as u32 {
-                let param = OleParamData::make(
-                    self,
-                    self.index,
-                    i - 1,
-                    bstrs[i as usize].to_string(),
-                );
+                let param =
+                    OleParamData::make(self, self.index, i - 1, bstrs[i as usize].to_string());
                 params.push(param);
             }
         }
@@ -265,6 +263,16 @@ impl OleMethodData {
     }
     pub fn offset_vtbl(&self) -> Result<i16> {
         Ok(unsafe { self.func_desc.as_ref().oVft })
+    }
+    pub fn is_event(&self) -> bool {
+        if self.owner_typeinfo.is_none() {
+            return false;
+        }
+        ole_method_event(
+            self.owner_typeinfo.as_ref().unwrap(),
+            self.index,
+            &self.name,
+        )
     }
     pub fn event_interface(&self) -> Result<Option<String>> {
         if self.is_event() {
@@ -294,21 +302,97 @@ impl Drop for OleMethodData {
     }
 }
 
+pub fn ole_method_event<S: AsRef<str>>(
+    typeinfo: &ITypeInfo,
+    method_index: u32,
+    method_name: S,
+) -> bool {
+    let type_attr = unsafe { typeinfo.GetTypeAttr() };
+    if type_attr.is_err() {
+        return false;
+    }
+    let type_attr = type_attr.unwrap();
+    if unsafe { (*type_attr).typekind } != TKIND_COCLASS {
+        return false;
+    }
+    let mut event = false;
+
+    for index in 0..unsafe { (*type_attr).cImplTypes } {
+        let flags = unsafe { typeinfo.GetImplTypeFlags(index as u32) };
+        if flags.is_err() {
+            continue;
+        }
+        let flags = flags.unwrap();
+
+        if flags.contains(IMPLTYPEFLAG_FSOURCE) {
+            let href = unsafe { typeinfo.GetRefTypeOfImplType(index as u32) };
+            if href.is_err() {
+                continue;
+            }
+            let href = href.unwrap();
+
+            let ref_typeinfo = unsafe { typeinfo.GetRefTypeInfo(href) };
+            if ref_typeinfo.is_err() {
+                continue;
+            }
+            let ref_typeinfo = ref_typeinfo.unwrap();
+
+            let func_desc = unsafe { ref_typeinfo.GetFuncDesc(method_index) };
+            if func_desc.is_err() {
+                continue;
+            }
+            let func_desc = func_desc.unwrap();
+
+            let mut bstr = BSTR::default();
+            let result = unsafe {
+                ref_typeinfo.GetDocumentation(
+                    (*func_desc).memid,
+                    Some(&mut bstr),
+                    None,
+                    ptr::null_mut(),
+                    None,
+                )
+            };
+            if result.is_err() {
+                continue;
+            }
+
+            if method_name.as_ref() == bstr.to_string() {
+                event = true;
+                break;
+            }
+        }
+    }
+    event
+}
+
 pub(crate) fn ole_methods_from_typeinfo(
     typeinfo: ITypeInfo,
     mask: i32,
 ) -> Result<Vec<OleMethodData>> {
-    let type_attr = unsafe { typeinfo.GetTypeAttr()? };
+    let type_attr = unsafe { typeinfo.GetTypeAttr() };
+    if let Err(error) = type_attr {
+        return Err(OleError::interface(error.code(), "failed to GetTypeAttr").into());
+    }
+    let type_attr = type_attr.unwrap();
     let mut methods = vec![];
     ole_methods_sub(None, &typeinfo, &mut methods, mask)?;
-    let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
-    for referenced_type in referenced_types.filter_map(|t| t.ok()) {
-        ole_methods_sub(
-            Some(&typeinfo),
-            referenced_type.typeinfo(),
-            &mut methods,
-            mask,
-        )?;
+    let mut index = 0;
+    while index < (unsafe { *type_attr }).cImplTypes {
+        let hreftype = unsafe { typeinfo.GetRefTypeOfImplType(index as u32) };
+        if hreftype.is_err() {
+            index += 1;
+            continue;
+        }
+        let hreftype = hreftype.unwrap();
+        let reftypeinfo = unsafe { typeinfo.GetRefTypeInfo(hreftype) };
+        if reftypeinfo.is_err() {
+            index += 1;
+            continue;
+        }
+        let reftypeinfo = reftypeinfo.unwrap();
+        ole_methods_sub(Some(&typeinfo), &reftypeinfo, &mut methods, mask)?;
+        index += 1;
     }
     unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
     Ok(methods)
@@ -320,28 +404,43 @@ fn ole_methods_sub(
     methods: &mut Vec<OleMethodData>,
     mask: i32,
 ) -> Result<()> {
-    let methods_iter = Methods::new(typeinfo)?;
-    for (i, method) in methods_iter.enumerate() {
-        if let Ok(method) = method {
-            if method.invkind_matches(mask) {
-                let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
-                    let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
-                    let type_attr = NonNull::new(type_attr).unwrap();
-                    Some(type_attr)
-                } else {
-                    None
-                };
-                let (typeinfo, func_desc, bstrname) = method.deconstruct();
-                methods.push(OleMethodData {
-                    owner_typeinfo: owner_typeinfo.cloned(),
-                    owner_type_attr,
-                    typeinfo,
-                    name: bstrname.to_string(),
-                    index: i as u32,
-                    func_desc,
-                });
-            }
+    let type_attr = unsafe { typeinfo.GetTypeAttr() };
+    if let Err(error) = type_attr {
+        return Err(OleError::interface(error.code(), "failed to GetTypeAttr").into());
+    }
+    let type_attr = type_attr.unwrap();
+    let mut index = 0;
+    while index < (unsafe { *type_attr }).cFuncs {
+        let func_desc = unsafe { typeinfo.GetFuncDesc(index as u32) };
+        if func_desc.is_err() {
+            index += 1;
+            continue;
         }
+        let func_desc = func_desc.unwrap();
+        let mut bstrname = BSTR::default();
+        let result = unsafe {
+            typeinfo.GetDocumentation(
+                (*func_desc).memid,
+                Some(&mut bstrname),
+                None,
+                ptr::null_mut(),
+                None,
+            )
+        };
+        if result.is_err() {
+            index += 1;
+            continue;
+        }
+        if (unsafe { *func_desc }).invkind.0 & mask != 0 {
+            methods.push(OleMethodData {
+                owner_typeinfo: owner_typeinfo.cloned(),
+                typeinfo: typeinfo.clone(),
+                name: bstrname.to_string(),
+                index: index as u32,
+                func_desc: NonNull::new(func_desc).unwrap(),
+            });
+        }
+        index += 1;
     }
     Ok(())
 }

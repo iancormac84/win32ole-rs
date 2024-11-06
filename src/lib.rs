@@ -125,3 +125,18 @@ pub fn typelibs() -> Result<Vec<Result<OleTypeLibData>>> {
 
     Ok(typelibs)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::progids;
+
+    #[test]
+    fn test_progids() {
+        let ids = progids();
+        assert!(ids.is_ok());
+        let ids = ids.unwrap();
+        assert!(ids.len() > 0);
+        let target = "Shell.Application.1".to_string();
+        assert!(ids.contains(&target));
+    }
+}
