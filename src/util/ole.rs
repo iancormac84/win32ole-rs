@@ -118,8 +118,8 @@ pub trait TypeRef {
 
 pub trait ValueDescription: TypeRef {
     fn ole_typedesc2val(&self, mut typedetails: Option<&mut Vec<String>>) -> String {
-        let p = unsafe { self.typedesc().Anonymous.lptdesc };
-        let typestr = match unsafe { (*p).vt.0 } {
+        let vt = self.typedesc().vt.0;
+        let typestr = match vt {
             2 => "I2".into(),
             3 => "I4".into(),
             4 => "R4".into(),
