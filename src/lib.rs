@@ -1,6 +1,6 @@
-use std::sync::LazyLock;
 use crate::error::Result;
 use oledata::reg_get_val;
+use std::sync::LazyLock;
 use windows::core::PCWSTR;
 use windows_registry::{CLASSES_ROOT, HSTRING, LOCAL_MACHINE};
 
@@ -25,13 +25,13 @@ pub use {
     olevariabledata::OleVariableData,
     util::{
         conv::ToWide,
-        ole::{init_runtime, ole_initialized, TypeRef},
+        ole::{init_runtime, ole_initialized},
     },
 };
 
 static G_RUNNING_NANO: LazyLock<bool> = LazyLock::new(|| {
-    let hsubkey = LOCAL_MACHINE
-        .open("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels");
+    let hsubkey =
+        LOCAL_MACHINE.open("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Server\\ServerLevels");
     if let Ok(hsubkey) = hsubkey {
         let result = hsubkey.get_string("NanoServer");
         if result.is_ok() {
@@ -57,7 +57,9 @@ pub fn progids() -> Result<Vec<String>> {
                     }
                 }
                 Err(_error) => {
-                    let val = unsafe { reg_get_val(&hclsid, PCWSTR::from_raw(HSTRING::from("ProgID").as_ptr())) };
+                    let val = unsafe {
+                        reg_get_val(&hclsid, PCWSTR::from_raw(HSTRING::from("ProgID").as_ptr()))
+                    };
                     if let Ok(val) = val {
                         progids.push(val);
                     }
@@ -65,13 +67,19 @@ pub fn progids() -> Result<Vec<String>> {
             }
             match hclsid.open("VersionIndependentProgID") {
                 Ok(version_independent_prog_id_key) => {
-                    let val = unsafe { reg_get_val(&version_independent_prog_id_key, PCWSTR::null()) };
+                    let val =
+                        unsafe { reg_get_val(&version_independent_prog_id_key, PCWSTR::null()) };
                     if let Ok(val) = val {
                         progids.push(val);
                     }
                 }
                 Err(_error) => {
-                    let val = unsafe { reg_get_val(&hclsid, PCWSTR::from_raw(HSTRING::from("VersionIndependentProgID").as_ptr())) };
+                    let val = unsafe {
+                        reg_get_val(
+                            &hclsid,
+                            PCWSTR::from_raw(HSTRING::from("VersionIndependentProgID").as_ptr()),
+                        )
+                    };
                     if let Ok(val) = val {
                         progids.push(val);
                     }

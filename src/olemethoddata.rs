@@ -2,14 +2,13 @@ use crate::{
     error::Result,
     oleparamdata::OleParamData,
     types::{Methods, ReferencedTypes},
-    util::{
-        conv::ToWide,
-        ole::{TypeRef, ValueDescription},
-    },
+    util::{conv::ToWide, ole::ole_typedesc2val},
     OleTypeData,
 };
 use std::{
-    ffi::OsStr, ops::Deref, ptr::{self, NonNull}
+    ffi::OsStr,
+    ops::Deref,
+    ptr::{self, NonNull},
 };
 use windows::{
     core::{BSTR, PCWSTR},
@@ -97,6 +96,9 @@ impl OleMethodData {
 
         Ok(None)
     }
+    pub fn typeinfo(&self) -> &ITypeInfo {
+        &self.typeinfo
+    }
     fn docinfo(
         &self,
         name: Option<*mut BSTR>,
@@ -152,7 +154,7 @@ impl OleMethodData {
         unsafe { self.func_desc.as_ref().memid }
     }
     pub fn return_type(&self) -> String {
-        self.ole_typedesc2val(None)
+        ole_typedesc2val(&self.typeinfo, self.return_type_desc(), None)
     }
     pub fn return_type_desc(&self) -> &TYPEDESC {
         unsafe { &self.func_desc.as_ref().elemdescFunc.tdesc }
@@ -162,7 +164,11 @@ impl OleMethodData {
     }
     pub fn return_type_detail(&self) -> Vec<String> {
         let mut type_details = vec![];
-        self.ole_typedesc2val(Some(&mut type_details));
+        ole_typedesc2val(
+            &self.typeinfo,
+            self.return_type_desc(),
+            Some(&mut type_details),
+        );
         type_details
     }
     pub fn funckind(&self) -> FUNCKIND {
@@ -282,18 +288,6 @@ impl Drop for OleMethodData {
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }
-
-impl TypeRef for OleMethodData {
-    fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
-    }
-    fn typedesc(&self) -> &TYPEDESC {
-        let func_desc_ref = unsafe { self.func_desc.as_ref() };
-        &func_desc_ref.elemdescFunc.tdesc
-    }
-}
-
-impl ValueDescription for OleMethodData {}
 
 pub(crate) fn ole_methods_from_typeinfo(
     typeinfo: ITypeInfo,
@@ -421,7 +415,10 @@ mod tests {
 
         println!("12");
         assert_eq!(m_open.return_type_detail(), ["VOID"]);
-        assert_eq!(m_namespace.return_type_detail(), ["PTR", "USERDEFINED", "Folder"]);
+        assert_eq!(
+            m_namespace.return_type_detail(),
+            ["PTR", "USERDEFINED", "Folder"]
+        );
 
         println!("13");
         assert_eq!(m_open.invoke_kind(), "FUNC");
@@ -434,7 +431,10 @@ mod tests {
 
         println!("15");
         assert!(m_namespace.helpstring().is_ok());
-        assert_eq!(m_namespace.helpstring().unwrap(), "Get special folder from ShellSpecialFolderConstants");
+        assert_eq!(
+            m_namespace.helpstring().unwrap(),
+            "Get special folder from ShellSpecialFolderConstants"
+        );
 
         println!("16");
         assert!(m_namespace.helpfile().is_ok());

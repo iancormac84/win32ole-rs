@@ -10,7 +10,10 @@ use windows::{
                 IDispatch, ITypeInfo, ITypeLib, DISPATCH_FLAGS, DISPATCH_METHOD,
                 DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPPARAMS, EXCEPINFO, INVOKE_FUNC,
                 INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF,
-            }, Environment::ExpandEnvironmentStringsW, Ole::DISPID_PROPERTYPUT, Variant::VARIANT
+            },
+            Environment::ExpandEnvironmentStringsW,
+            Ole::DISPID_PROPERTYPUT,
+            Variant::VARIANT,
         },
     },
 };
@@ -270,7 +273,11 @@ impl OleData {
 
 pub unsafe fn reg_get_val<N: AsRef<PCWSTR>>(key: &Key, subkey: N) -> Result<String> {
     let (ty, _) = key.raw_get_info(&subkey)?;
-    let subkey = if subkey.as_ref().is_null() {"".to_string()} else { subkey.as_ref().to_string().unwrap()};
+    let subkey = if subkey.as_ref().is_null() {
+        "".to_string()
+    } else {
+        subkey.as_ref().to_string().unwrap()
+    };
     let data = key.get_string(&subkey)?;
     if ty == Type::ExpandString {
         let data_pcwstr = PCWSTR::from_raw(data.to_wide_null().as_ptr());
@@ -374,13 +381,16 @@ mod tests {
         assert!(methods.is_ok());
         let methods = methods.unwrap();
 
-        let res: Vec<&super::OleMethodData> = methods.iter().filter_map(|m| {
-            if m.invoke_kind() == "PROPERTYPUTREF" {
-                Some(m)
-            } else {
-                None
-            }
-        }).collect();
+        let res: Vec<&super::OleMethodData> = methods
+            .iter()
+            .filter_map(|m| {
+                if m.invoke_kind() == "PROPERTYPUTREF" {
+                    Some(m)
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(res.len(), 1);
         assert_eq!(res[0].name(), "Item");
     }

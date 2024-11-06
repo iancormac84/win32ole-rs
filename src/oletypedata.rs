@@ -6,7 +6,7 @@ use crate::{
     types::{OleClassNames, ReferencedTypes, TypeInfos, Variables},
     util::{
         conv::ToWide,
-        ole::{ole_docinfo, ole_initialized, TypeRef, ValueDescription},
+        ole::{ole_docinfo, ole_initialized, ole_typedesc2val},
     },
     OleMethodData,
 };
@@ -20,7 +20,7 @@ use windows::{
         Com::{
             ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
             IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEDESC, TYPEKIND,
+            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEKIND,
         },
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
@@ -58,6 +58,9 @@ impl OleTypeData {
             name: name.as_ref().to_string(),
             type_attr,
         })
+    }
+    pub fn typeinfo(&self) -> &ITypeInfo {
+        &self.typeinfo
     }
     pub fn attribs(&self) -> &TYPEATTR {
         unsafe { self.type_attr.as_ref() }
@@ -152,7 +155,13 @@ impl OleTypeData {
         if unsafe { self.type_attr.as_ref().typekind } != TKIND_ALIAS {
             return None;
         }
-        Some(self.ole_typedesc2val(None))
+        let type_attr_ref = unsafe { self.type_attr.as_ref() };
+
+        Some(ole_typedesc2val(
+            &self.typeinfo,
+            &type_attr_ref.tdescAlias,
+            None,
+        ))
     }
     pub fn ole_methods(&self) -> Result<Vec<OleMethodData>> {
         ole_methods_from_typeinfo(
@@ -216,18 +225,6 @@ impl Drop for OleTypeData {
         unsafe { self.typeinfo.ReleaseTypeAttr(self.type_attr.as_ptr()) };
     }
 }
-
-impl TypeRef for OleTypeData {
-    fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
-    }
-    fn typedesc(&self) -> &TYPEDESC {
-        let type_attr_ref = unsafe { self.type_attr.as_ref() };
-        &type_attr_ref.tdescAlias
-    }
-}
-
-impl ValueDescription for OleTypeData {}
 
 impl TryFrom<ITypeInfo> for OleTypeData {
     type Error = Error;

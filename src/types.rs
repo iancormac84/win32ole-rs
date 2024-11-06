@@ -7,7 +7,7 @@ use windows::{
     },
 };
 
-use crate::{olevariabledata::OleVariableData, util::ole::TypeRef, OleTypeData};
+use crate::{olevariabledata::OleVariableData, OleTypeData};
 
 pub struct TypeInfos<'a> {
     typelib: &'a ITypeLib,

@@ -4,17 +4,14 @@ use windows::{
     core::BSTR,
     Win32::System::{
         Com::{
-            ITypeInfo, TYPEDESC, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE,
-            VARFLAG_FRESTRICTED, VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
+            ITypeInfo, VARDESC, VARFLAG_FHIDDEN, VARFLAG_FNONBROWSABLE, VARFLAG_FRESTRICTED,
+            VARKIND, VAR_CONST, VAR_DISPATCH, VAR_PERINSTANCE, VAR_STATIC,
         },
         Variant::VARIANT,
     },
 };
 
-use crate::{
-    error::Result,
-    util::ole::{TypeRef, ValueDescription},
-};
+use crate::{error::Result, util::ole::ole_typedesc2val};
 
 pub struct OleVariableData {
     typeinfo: ITypeInfo,
@@ -54,11 +51,19 @@ impl OleVariableData {
         unsafe { self.var_desc.as_ref().Anonymous.lpvarValue }
     }
     pub fn ole_type(&self) -> String {
-        self.ole_typedesc2val(None)
+        ole_typedesc2val(
+            &self.typeinfo,
+            unsafe { &((self.var_desc.as_ref()).elemdescVar.tdesc) },
+            None,
+        )
     }
     pub fn ole_type_detail(&self) -> Vec<String> {
         let mut typedetails = vec![];
-        self.ole_typedesc2val(Some(&mut typedetails));
+        ole_typedesc2val(
+            &self.typeinfo,
+            unsafe { &((self.var_desc.as_ref()).elemdescVar.tdesc) },
+            Some(&mut typedetails),
+        );
         typedetails
     }
     //pub fn value(&self)
@@ -141,14 +146,3 @@ impl Drop for OleVariableData {
         unsafe { self.typeinfo.ReleaseVarDesc(self.var_desc.as_ptr()) };
     }
 }
-
-impl TypeRef for OleVariableData {
-    fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
-    }
-    fn typedesc(&self) -> &TYPEDESC {
-        unsafe { &((self.var_desc.as_ref()).elemdescVar.tdesc) }
-    }
-}
-
-impl ValueDescription for OleVariableData {}

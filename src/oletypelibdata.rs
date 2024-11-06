@@ -5,7 +5,11 @@ use std::{
 };
 
 use crate::{
-    error::{Error, OleError, Result}, oledata::reg_get_val, types::{OleClassNames, TypeInfos}, util::conv::{os_string_from_ptr, ToWide}, OleTypeData
+    error::{Error, OleError, Result},
+    oledata::reg_get_val,
+    types::{OleClassNames, TypeInfos},
+    util::conv::{os_string_from_ptr, ToWide},
+    OleTypeData,
 };
 use windows::{
     core::{BSTR, GUID, PCWSTR},
@@ -400,20 +404,18 @@ pub fn oletypelib_path(guid: &str, version: &str) -> Option<Result<PathBuf>> {
     let hkey = CLASSES_ROOT.open(key);
     if let Ok(hkey) = hkey {
         match hkey.keys() {
-            Ok(mut lang_iter) => {
-                loop {
-                    match lang_iter.next() {
-                        None => {
-                            break None;
-                        }
-                        Some(lang) => {
-                            let hlang = hkey.open(lang);
-                            if let Ok(hlang) = hlang {
-                                return reg_get_typelib_file_path(hlang);
-                            }
+            Ok(mut lang_iter) => loop {
+                match lang_iter.next() {
+                    None => {
+                        break None;
+                    }
+                    Some(lang) => {
+                        let hlang = hkey.open(lang);
+                        if let Ok(hlang) = hlang {
+                            return reg_get_typelib_file_path(hlang);
                         }
                     }
-                }                
+                }
             },
             Err(error) => Some(Err(error.into())),
         }
@@ -615,7 +617,7 @@ mod tests {
         let tlib = tlib.unwrap();
         assert_eq!(tlib.name(), "Microsoft Excel 16.0 Object Library");
     }
-    
+
     #[test]
     fn test_various2() {
         let tlib = super::OleTypeLibData::new1("{00020813-0000-0000-C000-000000000046}");
@@ -623,7 +625,7 @@ mod tests {
         let tlib = tlib.unwrap();
         assert_eq!(tlib.name(), "Microsoft Excel 16.0 Object Library");
     }
-    
+
     #[test]
     fn test_various3() {
         let tlib = super::OleTypeLibData::new2("{00020813-0000-0000-C000-000000000046}", 1.9);

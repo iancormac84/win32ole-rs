@@ -1,13 +1,13 @@
 use std::ptr::NonNull;
 
 use windows::Win32::System::{
-    Com::{ITypeInfo, ELEMDESC, FUNCDESC, TYPEDESC},
+    Com::{ITypeInfo, ELEMDESC, FUNCDESC},
     Ole::{PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT, PARAMFLAG_FRETVAL},
 };
 
 use crate::{
     error::{Error, Result},
-    util::ole::{TypeRef, ValueDescription},
+    util::ole::ole_typedesc2val,
     OleMethodData,
 };
 
@@ -51,11 +51,29 @@ impl OleParamData {
         self.index
     }
     pub fn ole_type(&self) -> Result<String> {
-        Ok(self.ole_typedesc2val(None))
+        Ok(ole_typedesc2val(
+            &self.typeinfo,
+            unsafe {
+                &(*(self.func_desc.as_ref())
+                    .lprgelemdescParam
+                    .offset(self.index as isize))
+                .tdesc
+            },
+            None,
+        ))
     }
     pub fn ole_type_detail(&self) -> Result<Vec<String>> {
         let mut typedetails = vec![];
-        self.ole_typedesc2val(Some(&mut typedetails));
+        ole_typedesc2val(
+            &self.typeinfo,
+            &(unsafe {
+                *(self.func_desc.as_ref())
+                    .lprgelemdescParam
+                    .offset(self.index as isize)
+            })
+            .tdesc,
+            Some(&mut typedetails),
+        );
         Ok(typedetails)
     }
     pub fn param_flags(&self) -> PARAMFLAGS {
@@ -118,22 +136,6 @@ impl Drop for OleParamData {
         unsafe { self.typeinfo.ReleaseFuncDesc(self.func_desc.as_ptr()) };
     }
 }
-
-impl TypeRef for OleParamData {
-    fn typeinfo(&self) -> &ITypeInfo {
-        &self.typeinfo
-    }
-    fn typedesc(&self) -> &TYPEDESC {
-        unsafe {
-            &(*(self.func_desc.as_ref())
-                .lprgelemdescParam
-                .offset(self.index as isize))
-            .tdesc
-        }
-    }
-}
-
-impl ValueDescription for OleParamData {}
 
 fn oleparam_ole_param_from_index(
     typeinfo: &ITypeInfo,
