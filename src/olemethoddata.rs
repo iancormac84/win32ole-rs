@@ -42,19 +42,18 @@ impl OleMethodData {
         typeinfo: ITypeInfo,
         name: S,
     ) -> Result<Option<OleMethodData>> {
-        println!(
-            "In OleMethodData::from_typeinfo, About to find the TYPEATTR for {:?}",
-            name.as_ref()
-        );
-        let type_attr = unsafe { typeinfo.GetTypeAttr()? };
-        println!("In OleMethodData::from_typeinfo, It was successful, and now we're calling OleMethodData::maybe_find_and_create");
         let method = OleMethodData::maybe_find_and_create(None, &typeinfo, &name)?;
-        println!("In OleMethodData::from_typeinfo, That was successful");
+        println!("In OleMethodData::from_typeinfo, There were no errors in the first call to OleMethodData::maybe_find_and_create");
         if method.is_some() {
             println!("In OleMethodData::from_typeinfo, we already found the method.");
             return Ok(method);
         }
-        println!("In OleMethodData::from_typeinfo, we have to called ReferencedTypes::new with the typeinfo and the type_attr");
+        println!(
+            "But we didn't find the method...so...in OleMethodData::from_typeinfo, we about to find the TYPEATTR for {:?}, which we will then pass to ReferencedTypes to do a deeper search",
+            name.as_ref()
+        );
+        let type_attr = unsafe { typeinfo.GetTypeAttr()? };
+        println!("In OleMethodData::from_typeinfo, we successfully found the TYPEATTR, and now we have to call ReferencedTypes::new with the typeinfo and the type_attr");
         let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
         for referenced_type in referenced_types.filter_map(|t| t.ok()) {
             let method = OleMethodData::maybe_find_and_create(
@@ -71,6 +70,8 @@ impl OleMethodData {
 
         Ok(None)
     }
+
+    // This is pretty much the same as the Ruby implementation's ole_method_sub function.
     fn maybe_find_and_create<S: AsRef<OsStr>>(
         owner_typeinfo: Option<&ITypeInfo>,
         typeinfo: &ITypeInfo,

@@ -180,7 +180,7 @@ impl<'a> Iterator for ReferencedTypes<'a> {
             let impl_type_flags = self.typeinfo.GetImplTypeFlags(self.index as u32);
             let Ok(impl_type_flags) = impl_type_flags else {
                 let impl_type_flags_err = impl_type_flags.unwrap_err();
-                println!("In ReferencedTypes::next, we got an error {impl_type_flags_err}");
+                println!("In ReferencedTypes::next, we got a GetImplTypeFlags error {impl_type_flags_err}");
                 self.index += 1;
                 return Some(Err(impl_type_flags_err));
             };
@@ -242,8 +242,6 @@ impl<'a> Methods<'a> {
         let type_attr = NonNull::new(type_attr).unwrap();
         let count = unsafe { type_attr.as_ref().cFuncs };
         println!("In Methods::new, count from cFuncs is {count}");
-        let cvars = unsafe { type_attr.as_ref().cVars };
-        println!("In Methods::new, cvars is {cvars}");
         Ok(Methods {
             typeinfo,
             type_attr,
