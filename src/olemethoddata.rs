@@ -2,7 +2,10 @@ use crate::{
     error::Result,
     oleparamdata::OleParamData,
     types::{Methods, ReferencedTypes},
-    util::{conv::ToWide, ole::{ole_docinfo_from_type, ole_typedesc2val}},
+    util::{
+        conv::ToWide,
+        ole::{ole_docinfo_from_type, ole_typedesc2val},
+    },
     OleTypeData,
 };
 use std::{
@@ -39,14 +42,19 @@ impl OleMethodData {
         typeinfo: ITypeInfo,
         name: S,
     ) -> Result<Option<OleMethodData>> {
-        println!("About to find the TYPEATTR for {:?}", name.as_ref());
+        println!(
+            "In OleMethodData::from_typeinfo, About to find the TYPEATTR for {:?}",
+            name.as_ref()
+        );
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
-        println!("It was successful, and now we're calling OleMethodData::maybe_find_and_create");
+        println!("In OleMethodData::from_typeinfo, It was successful, and now we're calling OleMethodData::maybe_find_and_create");
         let method = OleMethodData::maybe_find_and_create(None, &typeinfo, &name)?;
-        println!("1. That was successful");
+        println!("In OleMethodData::from_typeinfo, That was successful");
         if method.is_some() {
+            println!("In OleMethodData::from_typeinfo, we already found the method.");
             return Ok(method);
         }
+        println!("In OleMethodData::from_typeinfo, we have to called ReferencedTypes::new with the typeinfo and the type_attr");
         let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
         for referenced_type in referenced_types.filter_map(|t| t.ok()) {
             let method = OleMethodData::maybe_find_and_create(
@@ -70,15 +78,18 @@ impl OleMethodData {
     ) -> Result<Option<OleMethodData>> {
         let methods = Methods::new(typeinfo)?;
 
-        println!("We b looking for {:?}", name.as_ref());
+        println!(
+            "OleMethodData::maybe_find_and_create, We b looking for {:?}",
+            name.as_ref()
+        );
         let fname = name.to_wide_null();
         let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
 
-        for (i, method) in methods.enumerate() {
+        for method in methods {
             if let Ok(method) = method {
                 if unsafe { fname_pcwstr.as_wide() } == method.name().deref() {
-                    println!("Found {}", method.name());
-                    let (typeinfo, func_desc, bstrname) = method.deconstruct();
+                    let (typeinfo, func_desc, bstrname, method_index) = method.deconstruct();
+                    println!("Found method name {} for method {method_index}", bstrname.to_string());
 
                     let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
                         let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
@@ -92,7 +103,7 @@ impl OleMethodData {
                         owner_type_attr,
                         typeinfo,
                         name: bstrname.to_string(),
-                        index: i as u32,
+                        index: method_index as u32,
                         func_desc,
                     }));
                 }
@@ -319,7 +330,7 @@ fn ole_methods_sub(
     mask: i32,
 ) -> Result<()> {
     let methods_iter = Methods::new(typeinfo)?;
-    for (i, method) in methods_iter.enumerate() {
+    for method in methods_iter {
         if let Ok(method) = method {
             if method.invkind_matches(mask) {
                 let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
@@ -329,13 +340,13 @@ fn ole_methods_sub(
                 } else {
                     None
                 };
-                let (typeinfo, func_desc, bstrname) = method.deconstruct();
+                let (typeinfo, func_desc, bstrname, method_index) = method.deconstruct();
                 methods.push(OleMethodData {
                     owner_typeinfo: owner_typeinfo.cloned(),
                     owner_type_attr,
                     typeinfo,
                     name: bstrname.to_string(),
-                    index: i as u32,
+                    index: method_index as u32,
                     func_desc,
                 });
             }

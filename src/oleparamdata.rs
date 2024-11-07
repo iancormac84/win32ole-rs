@@ -172,3 +172,68 @@ fn oleparam_ole_param_from_index(
         func_desc,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_win32ole_param() {
+        let ole_type =
+            crate::OleTypeData::new("Microsoft Shell Controls And Automation", "ShellLinkObject");
+        assert!(ole_type.is_ok());
+        let ole_type = ole_type.unwrap();
+        let m_geticonlocation = super::OleMethodData::new(&ole_type, "GetIconLocation");
+        assert!(m_geticonlocation.is_ok());
+        let m_geticonlocation = m_geticonlocation.unwrap();
+        assert!(m_geticonlocation.is_some());
+        let m_geticonlocation = m_geticonlocation.unwrap();
+        let m_geticonlocation_params = m_geticonlocation.params();
+        let m_geticonlocation_param = &m_geticonlocation_params[0];
+        assert!(m_geticonlocation_param.is_ok());
+        //let param_pbs = param_pbs.unwrap();
+
+        let ole_type1 = crate::OleTypeData::new("Microsoft HTML Object Library", "FontNames");
+        assert!(ole_type1.is_ok());
+        let ole_type1 = ole_type1.unwrap();
+        let m_count = super::OleMethodData::new(&ole_type1, "Count");
+        assert!(m_count.is_ok());
+        let m_count = m_count.unwrap();
+        assert!(m_count.is_some());
+        let m_count = m_count.unwrap();
+        let m_count_params = m_count.params();
+        let m_count_param = &m_count_params[0];
+        assert!(m_count_param.is_ok());
+
+        let ole_type2 = crate::OleTypeData::new("Microsoft Scripting Runtime", "FileSystemObject");
+        assert!(ole_type2.is_ok());
+        let ole_type2 = ole_type2.unwrap();
+        let m_copyfile = super::OleMethodData::new(&ole_type2, "CopyFile");
+        assert!(m_copyfile.is_ok());
+        let m_copyfile = m_copyfile.unwrap();
+        assert!(m_copyfile.is_some());
+        let m_copyfile = m_copyfile.unwrap();
+        let m_copyfile_params = m_copyfile.params();
+        let param_source = &m_copyfile_params[0];
+        assert!(param_source.is_ok());
+        let param_overwritefiles = &m_copyfile_params[2];
+        assert!(param_overwritefiles.is_ok());
+
+        let ole_type3 = crate::OleTypeData::new("Microsoft Scripting Runtime", "Dictionary");
+        assert!(ole_type3.is_ok());
+        let ole_type3 = ole_type3.unwrap();
+        let m_add = super::OleMethodData::new(&ole_type3, "Add");
+        assert!(m_add.is_ok());
+        let m_add = m_add.unwrap();
+        assert!(m_add.is_some());
+        let m_add = m_add.unwrap();
+        let m_add_params = m_add.params();
+        let param_key = &m_add_params[0];
+        assert!(param_key.is_ok());
+
+        let param = super::OleParamData::new(m_copyfile, 3);
+        assert!(param.is_ok());
+        let param = param.unwrap();
+        assert_eq!(param.name(), "OverWriteFiles");
+        //assert_eq!(WIN32OLE::Param, param.class());
+        //assert_eq!(true, param.default());
+    }
+}

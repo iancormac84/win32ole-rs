@@ -119,6 +119,10 @@ impl TypeImplDesc {
         (self.impl_type_flags & flags) == flags
     }
     pub fn name(&self) -> windows::core::Result<String> {
+        println!(
+            "In TypeImplDesc::name, about to summon a FUNCDESC with an index of {}",
+            self.index
+        );
         let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index)? };
         let mut bstrname = BSTR::default();
         let result = unsafe {
@@ -130,11 +134,10 @@ impl TypeImplDesc {
                 None,
             )
         };
+        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         if let Err(error) = result {
-            unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
             return Err(error);
         }
-        unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         Ok(bstrname.to_string())
     }
 }
@@ -148,6 +151,7 @@ pub struct ReferencedTypes<'a> {
 
 impl<'a> ReferencedTypes<'a> {
     pub fn new(typeinfo: &'a ITypeInfo, attributes: &TYPEATTR, method_index: u32) -> Self {
+        println!("In ReferencedTypes::new, creating it with the typeinfo, the type_attr, and method_index of {method_index}");
         ReferencedTypes {
             typeinfo,
             count: attributes.cImplTypes,
@@ -169,10 +173,16 @@ impl<'a> Iterator for ReferencedTypes<'a> {
         }
 
         unsafe {
+            println!(
+                "In ReferencedTypes::next, we about to get GetImplTypeFlags for index {}",
+                self.index
+            );
             let impl_type_flags = self.typeinfo.GetImplTypeFlags(self.index as u32);
             let Ok(impl_type_flags) = impl_type_flags else {
+                let impl_type_flags_err = impl_type_flags.unwrap_err();
+                println!("In ReferencedTypes::next, we got an error {impl_type_flags_err}");
                 self.index += 1;
-                return Some(Err(impl_type_flags.unwrap_err()));
+                return Some(Err(impl_type_flags_err));
             };
             let ref_type = self.typeinfo.GetRefTypeOfImplType(self.index as u32);
             let Ok(ref_type) = ref_type else {
@@ -201,14 +211,15 @@ pub struct Method {
     typeinfo: ITypeInfo,
     func_desc: NonNull<FUNCDESC>,
     bstrname: BSTR,
+    index: u16,
 }
 
 impl Method {
     pub fn name(&self) -> &BSTR {
         &self.bstrname
     }
-    pub fn deconstruct(self) -> (ITypeInfo, NonNull<FUNCDESC>, BSTR) {
-        (self.typeinfo, self.func_desc, self.bstrname)
+    pub fn deconstruct(self) -> (ITypeInfo, NonNull<FUNCDESC>, BSTR, u16) {
+        (self.typeinfo, self.func_desc, self.bstrname, self.index)
     }
     pub fn invkind_matches(&self, mask: i32) -> bool {
         let invkind = unsafe { self.func_desc.as_ref().invkind.0 };
@@ -225,9 +236,14 @@ pub struct Methods<'a> {
 
 impl<'a> Methods<'a> {
     pub fn new(typeinfo: &'a ITypeInfo) -> windows::core::Result<Self> {
+        println!("In Methods::new, About to call a type_attr");
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
+        println!("In Methods::new, It was successful");
         let type_attr = NonNull::new(type_attr).unwrap();
         let count = unsafe { type_attr.as_ref().cFuncs };
+        println!("In Methods::new, count from cFuncs is {count}");
+        let cvars = unsafe { type_attr.as_ref().cVars };
+        println!("In Methods::new, cvars is {cvars}");
         Ok(Methods {
             typeinfo,
             type_attr,
@@ -245,10 +261,17 @@ impl<'a> Iterator for Methods<'a> {
             return None;
         }
 
+        println!(
+            "About to get the funcdesc from the typeinfo with index of {}",
+            self.index
+        );
         let funcdesc = unsafe { self.typeinfo.GetFuncDesc(self.index as u32) };
         let Ok(funcdesc) = funcdesc else {
+            let funcdesc_err = funcdesc.unwrap_err();
+            print!("The funcdesc retrieval was a failure, so returning the error {funcdesc_err}");
             self.index += 1;
-            return Some(Err(funcdesc.unwrap_err()));
+            println!(", and self.index is now {}", self.index);
+            return Some(Err(funcdesc_err));
         };
         let mut bstrname = BSTR::default();
         let result = unsafe {
@@ -260,8 +283,10 @@ impl<'a> Iterator for Methods<'a> {
                 None,
             )
         };
+        let old_index = self.index;
         self.index += 1;
         if let Err(error) = result {
+            println!("We got an error of {error} after trying to get documentation for self.typeinfo funcdesc memid of {}", unsafe { (*funcdesc).memid });
             unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
             Some(Err(error))
         } else {
@@ -269,6 +294,7 @@ impl<'a> Iterator for Methods<'a> {
                 typeinfo: self.typeinfo.clone(),
                 func_desc: NonNull::new(funcdesc).unwrap(),
                 bstrname,
+                index: old_index,
             }))
         }
     }
