@@ -384,7 +384,7 @@ fn typelib_file_from_clsid<P: AsRef<str>>(ole: P) -> Result<PathBuf> {
             let len = unsafe { ExpandEnvironmentStringsW(typelib_pcwstr, None) };
             let mut path = vec![0; len as usize + 1];
             unsafe { ExpandEnvironmentStringsW(typelib_pcwstr, Some(&mut path)) };
-            let path = PathBuf::from(unsafe { typelib_pcwstr.to_string()? });
+            let path = PathBuf::from(String::from_utf16(&path)?);
             Ok(path)
         }
         Err(error) => Err(error.into()),

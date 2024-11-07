@@ -18,9 +18,9 @@ use windows::{
     core::{BSTR, GUID, PCWSTR},
     Win32::System::{
         Com::{
-            ITypeInfo, ITypeLib, ProgIDFromCLSID, IMPLTYPEFLAGS, IMPLTYPEFLAG_FDEFAULT,
-            IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
-            INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEKIND,
+            ITypeInfo, ITypeLib, ProgIDFromCLSID, StringFromGUID2, IMPLTYPEFLAGS,
+            IMPLTYPEFLAG_FDEFAULT, IMPLTYPEFLAG_FSOURCE, INVOKE_FUNC, INVOKE_PROPERTYGET,
+            INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF, TKIND_ALIAS, TYPEATTR, TYPEKIND,
         },
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
@@ -138,6 +138,16 @@ impl OleTypeData {
     }
     pub fn guid(&self) -> GUID {
         unsafe { self.type_attr.as_ref().guid }
+    }
+    pub fn guid_str(&self) -> String {
+        let mut buffer = vec![0; 80];
+
+        let len = unsafe { StringFromGUID2(&self.type_attr.as_ref().guid, &mut buffer) };
+        if len > 3 {
+            String::from_utf16(&buffer[..len as usize - 1]).unwrap()
+        } else {
+            String::new()
+        }
     }
     pub fn progid(&self) -> Result<String> {
         let result = unsafe { ProgIDFromCLSID(&self.guid())? };
@@ -288,4 +298,70 @@ fn oleclass_from_typelib<P: AsRef<str>>(
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_initialize() {
+        let ole_type = super::OleTypeData::new("Microsoft Shell Controls And Automation", "Shell");
+        assert!(ole_type.is_ok());
+        let ole_type = ole_type.unwrap();
+        assert_eq!(ole_type.name, "Shell");
+        assert_eq!(ole_type.ole_type(), "Class");
+        assert_eq!(
+            ole_type.guid_str(),
+            "{13709620-C279-11CE-A49E-444553540000}"
+        );
+        assert_eq!(ole_type.progid().unwrap(), "Shell.Application.1");
+        assert!(ole_type.visible());
+        assert_eq!(ole_type.major_version(), 0);
+        assert_eq!(ole_type.minor_version(), 0);
+        assert_eq!(ole_type.typekind().0, 5);
+        assert_eq!(
+            ole_type.helpstring().unwrap(),
+            "Shell Object Type Information"
+        );
+        assert_eq!(ole_type.src_type(), None);
+        assert_eq!(ole_type.helpfile().unwrap(), "");
+        assert_eq!(ole_type.helpcontext().unwrap(), 0);
+        assert!(ole_type.variables().is_empty());
+        assert!(ole_type
+            .ole_methods()
+            .unwrap()
+            .iter()
+            .any(|m| m.name() == "NameSpace"));
+
+        let ole_type2 = super::OleTypeData::new("{13709620-C279-11CE-A49E-444553540000}", "Shell");
+        assert!(ole_type2.is_ok());
+        let ole_type2 = ole_type2.unwrap();
+        assert_eq!(ole_type.name, ole_type2.name);
+        assert_eq!(ole_type.ole_type(), ole_type2.ole_type());
+        assert_eq!(ole_type.guid_str(), ole_type2.guid_str());
+        assert_eq!(ole_type.progid().unwrap(), ole_type2.progid().unwrap());
+        assert_eq!(ole_type.visible(), ole_type2.visible());
+        assert_eq!(ole_type.major_version(), ole_type2.major_version());
+        assert_eq!(ole_type.minor_version(), ole_type2.minor_version());
+        assert_eq!(ole_type.typekind(), ole_type2.typekind());
+        assert_eq!(
+            ole_type.helpstring().unwrap(),
+            ole_type2.helpstring().unwrap()
+        );
+        assert_eq!(ole_type.src_type(), ole_type2.src_type());
+        assert_eq!(ole_type.helpfile().unwrap(), ole_type2.helpfile().unwrap());
+        assert_eq!(
+            ole_type.helpcontext().unwrap(),
+            ole_type2.helpcontext().unwrap()
+        );
+        assert_eq!(ole_type.variables().len(), ole_type2.variables().len());
+        assert_eq!(
+            ole_type.ole_methods().unwrap()[0].name(),
+            ole_type2.ole_methods().unwrap()[0].name()
+        );
+        //assert_eq!(ole_type.typelib().name, ole_type2.ole_typelib.name);
+        assert_eq!(
+            ole_type.implemented_ole_types().unwrap().len(),
+            ole_type2.implemented_ole_types().unwrap().len()
+        );
+    }
 }

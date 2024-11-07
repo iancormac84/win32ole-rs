@@ -67,6 +67,7 @@ impl OleMethodData {
     ) -> Result<Option<OleMethodData>> {
         let methods = Methods::new(typeinfo)?;
 
+        println!("WWe b looking for {}", name.as_ref().to_str().unwrap());
         let fname = name.to_wide_null();
         let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
 
@@ -236,11 +237,8 @@ impl OleMethodData {
         let mut bstrs = Vec::with_capacity(cmaxnames as usize);
         let mut len = 0;
         let result = unsafe {
-            self.typeinfo.GetNames(
-                self.func_desc.as_ref().memid,
-                &mut bstrs,
-                &mut len,
-            )
+            self.typeinfo
+                .GetNames(self.func_desc.as_ref().memid, &mut bstrs, &mut len)
         };
         println!("len is {len}");
         if result.is_err() {
@@ -252,12 +250,8 @@ impl OleMethodData {
         println!("We are just about to compare cparams to 0");
         if cparams > 0 {
             for i in 1..bstrs.len() as u32 {
-                let param = OleParamData::make(
-                    self,
-                    self.index,
-                    i - 1,
-                    bstrs[i as usize].to_string(),
-                );
+                let param =
+                    OleParamData::make(self, self.index, i - 1, bstrs[i as usize].to_string());
                 params.push(param);
             }
         }
