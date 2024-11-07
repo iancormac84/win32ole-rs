@@ -2,7 +2,7 @@ use crate::{
     error::Result,
     oleparamdata::OleParamData,
     types::{Methods, ReferencedTypes},
-    util::{conv::ToWide, ole::ole_typedesc2val},
+    util::{conv::ToWide, ole::{ole_docinfo_from_type, ole_typedesc2val}},
     OleTypeData,
 };
 use std::{
@@ -39,8 +39,11 @@ impl OleMethodData {
         typeinfo: ITypeInfo,
         name: S,
     ) -> Result<Option<OleMethodData>> {
+        println!("About to find the TYPEATTR for {:?}", name.as_ref());
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
+        println!("It was successful, and now we're calling OleMethodData::maybe_find_and_create");
         let method = OleMethodData::maybe_find_and_create(None, &typeinfo, &name)?;
+        println!("1. That was successful");
         if method.is_some() {
             return Ok(method);
         }
@@ -67,13 +70,14 @@ impl OleMethodData {
     ) -> Result<Option<OleMethodData>> {
         let methods = Methods::new(typeinfo)?;
 
-        println!("WWe b looking for {}", name.as_ref().to_str().unwrap());
+        println!("We b looking for {:?}", name.as_ref());
         let fname = name.to_wide_null();
         let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
 
         for (i, method) in methods.enumerate() {
             if let Ok(method) = method {
                 if unsafe { fname_pcwstr.as_wide() } == method.name().deref() {
+                    println!("Found {}", method.name());
                     let (typeinfo, func_desc, bstrname) = method.deconstruct();
 
                     let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
@@ -263,7 +267,7 @@ impl OleMethodData {
     pub fn event_interface(&self) -> Result<Option<String>> {
         if self.is_event() {
             let mut name = BSTR::default();
-            self.docinfo(Some(&mut name), None, ptr::null_mut(), None)?;
+            ole_docinfo_from_type(&self.typeinfo, Some(&mut name), None, ptr::null_mut(), None)?;
             return Ok(Some(name.to_string()));
         }
         Ok(None)
@@ -464,5 +468,36 @@ mod tests {
         assert!(m_browse_for_folder.params().iter().all(|p| p.is_ok()));
 
         println!("22");
+    }
+
+    #[test]
+    fn test_win32ole_method_event() {
+        let ole_type = super::OleTypeData::new("System Monitor Control", "SystemMonitor");
+        assert!(ole_type.is_ok());
+        let ole_type = ole_type.unwrap();
+        let on_dbl_click = super::OleMethodData::new(&ole_type, "OnDblClick");
+        assert!(on_dbl_click.is_ok());
+        let on_dbl_click = on_dbl_click.unwrap();
+        assert!(on_dbl_click.is_some());
+        let on_dbl_click = on_dbl_click.unwrap();
+        let ole_type1 = super::OleTypeData::new("Microsoft Shell Controls And Automation", "Shell");
+        assert!(ole_type1.is_ok());
+        let ole_type1 = ole_type1.unwrap();
+        let namespace = super::OleMethodData::new(&ole_type1, "NameSpace");
+        assert!(namespace.is_ok());
+        let namespace = namespace.unwrap();
+        assert!(namespace.is_some());
+        let namespace = namespace.unwrap();
+        let namespace_ei = namespace.event_interface();
+        assert!(namespace_ei.is_ok());
+        let namespace_ei = namespace_ei.unwrap();
+        assert!(namespace_ei.is_none());
+        assert!(on_dbl_click.is_event());
+        let on_dbl_click_ei = on_dbl_click.event_interface();
+        assert!(on_dbl_click_ei.is_ok());
+        let on_dbl_click_ei = on_dbl_click_ei.unwrap();
+        assert!(on_dbl_click_ei.is_some());
+        let on_dbl_click_ei = on_dbl_click_ei.unwrap();
+        assert_eq!(on_dbl_click_ei, "DISystemMonitorEvents");
     }
 }

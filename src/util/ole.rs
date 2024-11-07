@@ -209,7 +209,7 @@ pub fn ole_usertype2val(
     }
     let reftypeinfo = result.unwrap();
     let mut bstrname = BSTR::default();
-    let result = ole_docinfo(
+    let result = ole_docinfo_from_type(
         &reftypeinfo,
         Some(&mut bstrname),
         None,
@@ -226,7 +226,7 @@ pub fn ole_usertype2val(
     Some(type_)
 }
 
-pub(crate) fn ole_docinfo(
+pub(crate) fn ole_docinfo_from_type(
     typeinfo: &ITypeInfo,
     name: Option<*mut BSTR>,
     helpstr: Option<*mut BSTR>,
