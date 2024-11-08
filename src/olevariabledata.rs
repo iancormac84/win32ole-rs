@@ -11,7 +11,7 @@ use windows::{
     },
 };
 
-use crate::{error::Result, util::ole::ole_typedesc2val};
+use crate::{error::Result, util::ole_typedesc2val};
 
 pub struct OleVariableData {
     typeinfo: ITypeInfo,
@@ -144,5 +144,63 @@ impl OleVariableData {
 impl Drop for OleVariableData {
     fn drop(&mut self) {
         unsafe { self.typeinfo.ReleaseVarDesc(self.var_desc.as_ptr()) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use windows::Win32::System::Com::VARKIND;
+
+    #[test]
+    fn test_win32ole_variable() {
+        let ole_type = crate::OleTypeData::new(
+            "Microsoft Shell Controls And Automation",
+            "ShellSpecialFolderConstants",
+        );
+        assert!(ole_type.is_ok());
+        let ole_type = ole_type.unwrap();
+
+        let variables = ole_type.variables();
+        let var = variables
+            .iter()
+            .filter_map(|v| {
+                let v = v.as_ref().unwrap();
+                if v.name() == "ssfDESKTOP" {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+            .take(1)
+            .next()
+            .unwrap();
+        assert_eq!(var.ole_type(), "INT");
+        assert_eq!(var.ole_type_detail(), ["INT"]);
+        assert_eq!(var.variable_kind(), "CONSTANT");
+        assert_eq!(var.varkind(), VARKIND(2));
+
+        let ole_type1 =
+            crate::OleTypeData::new("Microsoft Windows Installer Object Library", "Installer");
+        assert!(ole_type1.is_ok());
+        let ole_type1 = ole_type1.unwrap();
+        let variables1 = ole_type1.variables();
+        let var1 = variables1
+            .iter()
+            .filter_map(|v| {
+                let v = v.as_ref().unwrap();
+                if v.name() == "UILevel" {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
+            .take(1)
+            .next()
+            .unwrap();
+        assert_eq!(var1.ole_type(), "MsiUILevel");
+        assert_eq!(var1.ole_type_detail(), ["USERDEFINED", "MsiUILevel"]);
+        assert!(var1.visible());
+        assert_eq!(var1.variable_kind(), "DISPATCH");
+        assert_eq!(var1.varkind(), VARKIND(3));
     }
 }

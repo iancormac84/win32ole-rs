@@ -4,13 +4,13 @@ use windows::{
     core::BSTR,
     Win32::System::{
         Com::{ITypeInfo, ELEMDESC, FUNCDESC},
-        Ole::{PARAMFLAGS, PARAMFLAG_FHASDEFAULT, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT, PARAMFLAG_FRETVAL},
+        Ole::{PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT, PARAMFLAG_FRETVAL},
     },
 };
 
 use crate::{
     error::{Error, Result},
-    util::ole::ole_typedesc2val,
+    util::ole_typedesc2val,
     OleMethodData,
 };
 

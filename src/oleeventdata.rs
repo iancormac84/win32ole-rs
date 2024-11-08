@@ -1,7 +1,7 @@
 use std::ptr;
 
 use windows::{
-    core::{implement, Interface, Vtable, BSTR, GUID, HSTRING},
+    core::{implement, Interface, BSTR, GUID},
     Win32::{
         Foundation::{DISP_E_BADINDEX, E_NOINTERFACE, HWND},
         Globalization::GetUserDefaultLCID,
@@ -22,7 +22,7 @@ use windows::{
 use crate::{error::Result, OleData};
 
 pub struct IEventSinkObject {
-    event_sink: IEventSink,
+    event_sink: EventSink,
     m_ref: u32,
     m_iid: GUID,
     m_event_id: u64,
@@ -45,7 +45,7 @@ impl Drop for OleEventData {
 fn ole_msg_loop() {
     let mut msg = MSG::default();
     unsafe {
-        while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_REMOVE).as_bool() {
+        while PeekMessageW(&mut msg, HWND(ptr::null_mut()), 0, 0, PM_REMOVE).as_bool() {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -127,7 +127,7 @@ fn find_iid(oledata: &OleData, pitf: Option<&str>, piid: &GUID) -> Result<GuidIn
         }
         unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
     }
-    let msg = HSTRING::from(format!("failed to find GUID or ITypeInfo for {pitf}"));
+    let msg = format!("failed to find GUID or ITypeInfo for {pitf}");
     Err(windows::core::Error::new(E_NOINTERFACE, msg).into())
 }
 
@@ -143,9 +143,9 @@ impl Drop for ITypeInfoData<'_> {
 }
 
 #[implement(IDispatch)]
-pub struct IEventSink();
+pub struct EventSink;
 
-impl IDispatch_Impl for IEventSink {
+impl IDispatch_Impl for EventSink_Impl {
     fn GetTypeInfoCount(&self) -> windows::core::Result<u32> {
         Ok(0)
     }
@@ -162,7 +162,7 @@ impl IDispatch_Impl for IEventSink {
         lcid: u32,
         rgdispid: *mut i32,
     ) -> windows::core::Result<()> {
-        todo!()
+        return unsafe { self.0.typeinfo.GetIDsOfNames(rgsznames, cnames, rgdispid) };
     }
 
     fn Invoke(
@@ -172,7 +172,7 @@ impl IDispatch_Impl for IEventSink {
         lcid: u32,
         wflags: windows::Win32::System::Com::DISPATCH_FLAGS,
         pdispparams: *const windows::Win32::System::Com::DISPPARAMS,
-        pvarresult: *mut windows::Win32::System::Com::VARIANT,
+        pvarresult: *mut windows::Win32::System::Variant::VARIANT,
         pexcepinfo: *mut windows::Win32::System::Com::EXCEPINFO,
         puargerr: *mut u32,
     ) -> windows::core::Result<()> {
@@ -249,10 +249,10 @@ fn find_coclass<'a>(typeinfo: &ITypeInfo, typeattr: &TYPEATTR) -> Result<ITypeIn
             }
         }
     }
-    let msg = HSTRING::from(format!(
+    let msg = format!(
         "failed to find ITypeInfoData for {:?}",
         typeattr.guid
-    ));
+    );
     Err(windows::core::Error::new(E_NOINTERFACE, msg).into())
 }
 
@@ -298,14 +298,14 @@ fn find_default_source_from_typeinfo(
 }
 
 fn find_default_source(ole: &OleData) -> Result<GuidInfo> {
-    let mut provider_class_info_interface = ptr::null();
+    let mut provider_class_info_interface = ptr::null_mut();
     let result = unsafe {
         ole.dispatch
             .query(&IProvideClassInfo2::IID, &mut provider_class_info_interface)
     };
     if result.is_ok() {
         let provide_class_info2 = unsafe {
-            <IProvideClassInfo2 as Vtable>::from_raw(provider_class_info_interface as *mut _)
+            IProvideClassInfo2::from_raw(provider_class_info_interface)
         };
         let piid =
             unsafe { provide_class_info2.GetGUID(GUIDKIND_DEFAULT_SOURCE_DISP_IID.0 as u32) };
@@ -324,7 +324,7 @@ fn find_default_source(ole: &OleData) -> Result<GuidInfo> {
     };
     if result.is_ok() {
         let provide_class_info = unsafe {
-            <IProvideClassInfo as Vtable>::from_raw(provider_class_info_interface as *mut _)
+            IProvideClassInfo::from_raw(provider_class_info_interface)
         };
         let classinfo = unsafe { provide_class_info.GetClassInfo() };
         if let Ok(classinfo) = classinfo {

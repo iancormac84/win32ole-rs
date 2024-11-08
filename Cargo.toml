@@ -21,4 +21,5 @@ features = [
 ]
 
 [dependencies]
+windows-core = { git = "https://github.com/microsoft/windows-rs.git" }
 windows-registry = { git = "https://github.com/microsoft/windows-rs.git" }

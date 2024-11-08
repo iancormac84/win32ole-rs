@@ -4,10 +4,7 @@ use crate::{
     oletypelibdata::typelib_file,
     olevariabledata::OleVariableData,
     types::{OleClassNames, ReferencedTypes, TypeInfos, Variables},
-    util::{
-        conv::ToWide,
-        ole::{ole_docinfo_from_type, ole_initialized, ole_typedesc2val},
-    },
+    util::{ole_docinfo_from_type, ole_initialized, ole_typedesc2val},
     OleMethodData,
 };
 use std::{
@@ -15,7 +12,7 @@ use std::{
     ptr::{self, NonNull},
 };
 use windows::{
-    core::{BSTR, GUID, PCWSTR},
+    core::{BSTR, GUID},
     Win32::System::{
         Com::{
             ITypeInfo, ITypeLib, ProgIDFromCLSID, StringFromGUID2, IMPLTYPEFLAGS,
@@ -25,6 +22,7 @@ use windows::{
         Ole::{LoadTypeLibEx, REGKIND_NONE, TYPEFLAG_FHIDDEN, TYPEFLAG_FRESTRICTED},
     },
 };
+use windows_core::HSTRING;
 
 pub struct OleTypeData {
     typeinfo: ITypeInfo,
@@ -36,9 +34,8 @@ impl OleTypeData {
     pub fn new<S: AsRef<str>>(typelib: S, oleclass: S) -> Result<OleTypeData> {
         ole_initialized();
         let file = typelib_file(&typelib)?;
-        let file_vec = file.to_wide_null();
-        let typelib_iface =
-            unsafe { LoadTypeLibEx(PCWSTR::from_raw(file_vec.as_ptr()), REGKIND_NONE)? };
+        let file_hstring = HSTRING::from(file.as_path());
+        let typelib_iface = unsafe { LoadTypeLibEx(&file_hstring, REGKIND_NONE)? };
         let maybe_typedata = oleclass_from_typelib(&typelib_iface, &oleclass)?;
         match maybe_typedata {
             Some(typedata) => Ok(typedata),
@@ -371,7 +368,7 @@ mod tests {
             ole_type.ole_methods().unwrap()[0].name(),
             ole_type2.ole_methods().unwrap()[0].name()
         );
-        //assert_eq!(ole_type.typelib().name, ole_type2.ole_typelib.name);
+        //assert_eq!(ole_type.typelib().name, ole_type2.ole_typelib().name);
         assert_eq!(
             ole_type.implemented_ole_types().unwrap().len(),
             ole_type2.implemented_ole_types().unwrap().len()

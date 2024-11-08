@@ -2,19 +2,12 @@ use crate::{
     error::Result,
     oleparamdata::OleParamData,
     types::{Methods, Parents, ReferencedTypes},
-    util::{
-        conv::ToWide,
-        ole::{ole_docinfo_from_type, ole_typedesc2val},
-    },
+    util::{ole_docinfo_from_type, ole_typedesc2val},
     OleTypeData,
 };
-use std::{
-    ffi::OsStr,
-    ops::Deref,
-    ptr::{self, NonNull},
-};
+use std::ptr::{self, NonNull};
 use windows::{
-    core::{BSTR, PCWSTR},
+    core::BSTR,
     Win32::System::{
         Com::{
             ITypeInfo, FUNCDESC, FUNCKIND, INVOKEKIND, INVOKE_FUNC, INVOKE_PROPERTYGET,
@@ -23,6 +16,7 @@ use windows::{
         Variant::VARENUM,
     },
 };
+use windows_core::HSTRING;
 
 #[derive(Debug)]
 pub struct OleMethodData {
@@ -35,29 +29,23 @@ pub struct OleMethodData {
 }
 
 impl OleMethodData {
-    pub fn new<S: AsRef<OsStr>>(ole_type: &OleTypeData, name: S) -> Result<Option<OleMethodData>> {
+    pub fn new<S: AsRef<str>>(ole_type: &OleTypeData, name: S) -> Result<Option<OleMethodData>> {
         OleMethodData::from_typeinfo(ole_type.typeinfo().clone(), name)
     }
-    pub fn from_typeinfo<S: AsRef<OsStr>>(
+    pub fn from_typeinfo<S: AsRef<str>>(
         typeinfo: ITypeInfo,
         name: S,
     ) -> Result<Option<OleMethodData>> {
-        let method = OleMethodData::maybe_find_and_create(None, &typeinfo, &name)?;
-        println!("In OleMethodData::from_typeinfo, There were no errors in the first call to OleMethodData::maybe_find_and_create");
+        let name = name.as_ref();
+        let method = OleMethodData::maybe_find_and_create(None, &typeinfo, name)?;
         if method.is_some() {
-            println!("In OleMethodData::from_typeinfo, we already found the method.");
             return Ok(method);
         }
-        println!(
-            "But we didn't find the method...so...in OleMethodData::from_typeinfo, we about to find the TYPEATTR for {:?}, which we will then pass to Parents to do a deeper search",
-            name.as_ref()
-        );
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
-        println!("In OleMethodData::from_typeinfo, we successfully found the TYPEATTR, and now we have to call Parents::new with the typeinfo and the type_attr");
         let parents = Parents::new(&typeinfo, unsafe { &*type_attr });
         for parent in parents.filter_map(|t| t.ok()) {
             let method =
-                OleMethodData::maybe_find_and_create(Some(&typeinfo), parent.typeinfo(), &name);
+                OleMethodData::maybe_find_and_create(Some(&typeinfo), parent.typeinfo(), name);
             if let Ok(method) = method {
                 if method.is_some() {
                     return Ok(method);
@@ -69,28 +57,19 @@ impl OleMethodData {
     }
 
     // This is pretty much the same as the Ruby implementation's ole_method_sub function.
-    fn maybe_find_and_create<S: AsRef<OsStr>>(
+    fn maybe_find_and_create(
         owner_typeinfo: Option<&ITypeInfo>,
         typeinfo: &ITypeInfo,
-        name: &S,
+        name: &str,
     ) -> Result<Option<OleMethodData>> {
         let methods = Methods::new(typeinfo)?;
 
-        println!(
-            "OleMethodData::maybe_find_and_create, We b looking for {:?}",
-            name.as_ref()
-        );
-        let fname = name.to_wide_null();
-        let fname_pcwstr = PCWSTR::from_raw(fname.as_ptr());
+        let name_hstring = HSTRING::from(name);
 
         for method in methods {
             if let Ok(method) = method {
-                if unsafe { fname_pcwstr.as_wide() } == method.name().deref() {
+                if *name_hstring == **method.name() {
                     let (typeinfo, func_desc, bstrname, method_index) = method.deconstruct();
-                    println!(
-                        "Found method name {} for method {method_index}",
-                        bstrname.to_string()
-                    );
 
                     let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
                         let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };

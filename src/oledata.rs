@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, ptr};
+use std::ptr;
 
 use windows::{
     core::{Interface, BSTR, GUID, PCWSTR},
@@ -17,16 +17,14 @@ use windows::{
         },
     },
 };
+use windows_core::HSTRING;
 use windows_registry::{Key, Type};
 
 use crate::{
     error::{ComArgumentErrorType, Error, OleError, Result},
     olemethoddata::{ole_methods_from_typeinfo, OleMethodData},
     types::OleClassNames,
-    util::{
-        conv::ToWide,
-        ole::{create_com_object, get_class_id},
-    },
+    util::{create_com_object, get_class_id},
     OleTypeData, OleTypeLibData,
 };
 
@@ -51,16 +49,16 @@ pub struct OleData {
     pub dispatch: IDispatch,
 }
 impl OleData {
-    pub fn new<S: AsRef<OsStr>>(prog_id: S) -> Result<Self> {
+    pub fn new<H: Into<HSTRING>>(prog_id: H) -> Result<Self> {
         Ok(OleData {
             dispatch: create_com_object(prog_id)?,
         })
     }
-    pub fn get_ids_of_names<S: AsRef<OsStr> + Copy>(&self, names: &[S]) -> Result<Vec<i32>> {
+    pub fn get_ids_of_names<H: Into<HSTRING> + Copy>(&self, names: &[H]) -> Result<Vec<i32>> {
         let namelen = names.len();
         let mut wnames = vec![PCWSTR::null(); namelen];
         for i in 0..namelen {
-            let a = names[i].to_wide_null();
+            let a = &names[i].into();
             wnames[i] = PCWSTR(a.as_ptr());
         }
 
@@ -80,8 +78,8 @@ impl OleData {
 
         Ok(ids)
     }
-    pub fn responds_to<S: AsRef<OsStr>>(&self, method: S) -> bool {
-        let method = method.to_wide_null();
+    pub fn responds_to<H: Into<HSTRING>>(&self, method: H) -> bool {
+        let method = method.into();
         let methods = [PCWSTR(method.as_ptr())];
         let mut dispids = 0;
 
@@ -163,7 +161,7 @@ impl OleData {
         }
         Ok(ret_type_info.unwrap())
     }
-    pub fn ole_query_interface<S: AsRef<OsStr>>(&self, str_iid: S) -> Result<OleData> {
+    pub fn ole_query_interface<H: Into<HSTRING>>(&self, str_iid: H) -> Result<OleData> {
         let iid = get_class_id(str_iid)?;
         let mut dispatch_interface = ptr::null_mut();
         let result = unsafe { self.dispatch.query(&iid, &mut dispatch_interface) };
@@ -176,7 +174,8 @@ impl OleData {
             Ok(OleData { dispatch })
         }
     }
-    pub fn ole_method_help<S: AsRef<OsStr>>(&self, cmdname: S) -> Result<OleMethodData> {
+    pub fn ole_method_help<S: AsRef<str>>(&self, cmdname: S) -> Result<OleMethodData> {
+        let cmdname = cmdname.as_ref();
         let typeinfo = self.typeinfo_from_ole();
         let Ok(typeinfo) = typeinfo else {
             return Err(Error::Custom(format!(
@@ -184,21 +183,18 @@ impl OleData {
                 typeinfo.err().unwrap()
             )));
         };
-        let obj = OleMethodData::from_typeinfo(typeinfo, &cmdname)?;
+        let obj = OleMethodData::from_typeinfo(typeinfo, cmdname)?;
 
         if let Some(obj) = obj {
             Ok(obj)
         } else {
-            Err(Error::Custom(format!(
-                "not found {}",
-                cmdname.as_ref().to_str().unwrap()
-            )))
+            Err(Error::Custom(format!("not found {cmdname}",)))
         }
     }
 
-    pub fn invoke<S: AsRef<OsStr> + Copy>(
+    pub fn invoke<H: Into<HSTRING> + Copy>(
         &self,
-        name: S,
+        name: H,
         dp: &mut DISPPARAMS,
         flags: DISPATCH_FLAGS,
     ) -> Result<VARIANT> {
@@ -278,17 +274,84 @@ pub unsafe fn reg_get_val<N: AsRef<PCWSTR>>(key: &Key, subkey: N) -> Result<Stri
     } else {
         subkey.as_ref().to_string().unwrap()
     };
-    let data = key.get_string(&subkey)?;
+    let data = HSTRING::from(key.get_string(&subkey)?);
     if ty == Type::ExpandString {
-        let data_pcwstr = PCWSTR::from_raw(data.to_wide_null().as_ptr());
-        let len = ExpandEnvironmentStringsW(data_pcwstr, None);
+        let len = ExpandEnvironmentStringsW(&data, None);
         let mut expanded_data = vec![0; len as usize + 1];
-        unsafe { ExpandEnvironmentStringsW(data_pcwstr, Some(&mut expanded_data)) };
+        unsafe { ExpandEnvironmentStringsW(&data, Some(&mut expanded_data)) };
         let expanded_data_string = String::from_utf16_lossy(&expanded_data);
         return Ok(expanded_data_string);
     }
-    Ok(data)
+    Ok(data.to_string())
 }
+
+/*fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> windows::core::Result<()> {
+    let host = host.into();
+    let mut hlm = ptr::null_mut();
+    let result = unsafe { RegConnectRegistryW(&host, HKEY::from(HKEY_LOCAL_MACHINE), hlm) };
+    if result != ERROR_SUCCESS {
+        return Err(windows::core::Error::from_hresult(HRESULT::from_win32(result.0)));
+    };
+    let mut subkey = String::from("SOFTWARE\\Classes\\");
+    subkey.push_str(com.as_ref());
+    subkey.push_str("\\CLSID");
+    let hlm = unsafe { Key::from_raw(&hlm) };
+    let result = hlm.open(subkey);
+    if let Err(error) = result {
+        return Err(error);
+    } else {
+        len = sizeof(clsid);
+        err = RegQueryValueEx(hpid, "", NULL, &dwtype, (BYTE *)clsid, &len);
+        if (err == ERROR_SUCCESS && dwtype == REG_SZ) {
+            pbuf = ole_mb2wc(clsid, -1, cWIN32OLE_cp);
+            hr = CLSIDFromString(pbuf, pclsid);
+            SysFreeString(pbuf);
+        }
+        else {
+            hr = HRESULT_FROM_WIN32(err);
+        }
+        RegCloseKey(hpid);
+    }
+    RegCloseKey(hlm);
+    return hr;
+}
+
+fn ole_create_dcom(VALUE self, VALUE ole, VALUE host, VALUE others)
+{
+    HRESULT hr;
+    CLSID   clsid;
+    OLECHAR *pbuf;
+
+    COSERVERINFO serverinfo;
+    MULTI_QI multi_qi;
+    DWORD clsctx = CLSCTX_REMOTE_SERVER;
+
+    pbuf  = ole_vstr2wc(ole);
+    hr = CLSIDFromProgID(pbuf, &clsid);
+    if (FAILED(hr))
+        hr = clsid_from_remote(host, ole, &clsid);
+    if (FAILED(hr))
+        hr = CLSIDFromString(pbuf, &clsid);
+    SysFreeString(pbuf);
+    if (FAILED(hr))
+        ole_raise(hr, eWIN32OLERuntimeError,
+                  "unknown OLE server: `%s'",
+                  StringValuePtr(ole));
+    memset(&serverinfo, 0, sizeof(COSERVERINFO));
+    serverinfo.pwszName = ole_vstr2wc(host);
+    memset(&multi_qi, 0, sizeof(MULTI_QI));
+    multi_qi.pIID = &IID_IDispatch;
+    hr = gCoCreateInstanceEx(&clsid, NULL, clsctx, &serverinfo, 1, &multi_qi);
+    SysFreeString(serverinfo.pwszName);
+    if (FAILED(hr))
+        ole_raise(hr, eWIN32OLERuntimeError,
+                  "failed to create DCOM server `%s' in `%s'",
+                  StringValuePtr(ole),
+                  StringValuePtr(host));
+
+    ole_set_member(self, (IDispatch*)multi_qi.pItf);
+    return self;
+}*/
 
 /*pub enum HelpTarget<'a> {
     OleType(OleTypeData),
