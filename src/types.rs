@@ -355,3 +355,41 @@ impl<'a> Iterator for Variables<'a> {
         }
     }
 }
+
+pub struct Parents<'a> {
+    typeinfo: &'a ITypeInfo,
+    count: u16,
+    index: u16,
+}
+
+impl<'a> Parents<'a> {
+    pub fn new(typeinfo: &'a ITypeInfo, attributes: &TYPEATTR) -> Self {
+        Parents {
+            typeinfo,
+            count: attributes.cImplTypes,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for Parents<'a> {
+    type Item = Result<OleTypeData, windows::core::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.count {
+            return None;
+        }
+
+        unsafe {
+            let result = self
+                .typeinfo
+                .GetRefTypeOfImplType(u32::from(self.index))
+                .and_then(|idx| self.typeinfo.GetRefTypeInfo(idx))
+                .and_then(|parent_type_info| OleTypeData::from_typeinfo(parent_type_info));
+
+            self.index += 1;
+
+            Some(result)
+        }
+    }
+}

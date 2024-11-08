@@ -1,7 +1,7 @@
 use crate::{
     error::Result,
     oleparamdata::OleParamData,
-    types::{Methods, ReferencedTypes},
+    types::{Methods, Parents, ReferencedTypes},
     util::{
         conv::ToWide,
         ole::{ole_docinfo_from_type, ole_typedesc2val},
@@ -49,18 +49,15 @@ impl OleMethodData {
             return Ok(method);
         }
         println!(
-            "But we didn't find the method...so...in OleMethodData::from_typeinfo, we about to find the TYPEATTR for {:?}, which we will then pass to ReferencedTypes to do a deeper search",
+            "But we didn't find the method...so...in OleMethodData::from_typeinfo, we about to find the TYPEATTR for {:?}, which we will then pass to Parents to do a deeper search",
             name.as_ref()
         );
         let type_attr = unsafe { typeinfo.GetTypeAttr()? };
-        println!("In OleMethodData::from_typeinfo, we successfully found the TYPEATTR, and now we have to call ReferencedTypes::new with the typeinfo and the type_attr");
-        let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
-        for referenced_type in referenced_types.filter_map(|t| t.ok()) {
-            let method = OleMethodData::maybe_find_and_create(
-                Some(&typeinfo),
-                referenced_type.typeinfo(),
-                &name,
-            );
+        println!("In OleMethodData::from_typeinfo, we successfully found the TYPEATTR, and now we have to call Parents::new with the typeinfo and the type_attr");
+        let parents = Parents::new(&typeinfo, unsafe { &*type_attr });
+        for parent in parents.filter_map(|t| t.ok()) {
+            let method =
+                OleMethodData::maybe_find_and_create(Some(&typeinfo), parent.typeinfo(), &name);
             if let Ok(method) = method {
                 if method.is_some() {
                     return Ok(method);
@@ -90,7 +87,10 @@ impl OleMethodData {
             if let Ok(method) = method {
                 if unsafe { fname_pcwstr.as_wide() } == method.name().deref() {
                     let (typeinfo, func_desc, bstrname, method_index) = method.deconstruct();
-                    println!("Found method name {} for method {method_index}", bstrname.to_string());
+                    println!(
+                        "Found method name {} for method {method_index}",
+                        bstrname.to_string()
+                    );
 
                     let owner_type_attr = if let Some(owner_typeinfo) = owner_typeinfo {
                         let type_attr = unsafe { owner_typeinfo.GetTypeAttr()? };
@@ -212,12 +212,15 @@ impl OleMethodData {
     }
     pub fn is_event(&self) -> bool {
         if self.owner_typeinfo.is_none() {
+            println!("self.owner_typeinfo is None");
             return false;
         }
         if self.owner_type_attr.is_none() {
+            println!("self.owner_type_attr is None");
             return false;
         }
         if unsafe { self.owner_type_attr.unwrap().as_ref().typekind } != TKIND_COCLASS {
+            println!("self.owner_type_attr isn't TKIND_COCLASS");
             return false;
         }
         let mut event = false;
@@ -229,6 +232,7 @@ impl OleMethodData {
         for referenced_type in referenced_types.filter_map(|t| t.ok()) {
             if referenced_type.is_source() {
                 let name = referenced_type.name();
+                println!("referenced_type.name is {name:?}");
                 let Ok(name) = name else {
                     continue;
                 };
@@ -250,7 +254,7 @@ impl OleMethodData {
         let cparams = unsafe { self.func_desc.as_ref().cParams };
         println!("cparams is {cparams}");
         let cmaxnames = cparams as u32 + 1;
-        let mut bstrs = Vec::with_capacity(cmaxnames as usize);
+        let mut bstrs = vec![BSTR::default(); cmaxnames as usize];
         let mut len = 0;
         let result = unsafe {
             self.typeinfo
@@ -311,14 +315,9 @@ pub(crate) fn ole_methods_from_typeinfo(
     let type_attr = unsafe { typeinfo.GetTypeAttr()? };
     let mut methods = vec![];
     ole_methods_sub(None, &typeinfo, &mut methods, mask)?;
-    let referenced_types = ReferencedTypes::new(&typeinfo, unsafe { &*type_attr }, 0);
-    for referenced_type in referenced_types.filter_map(|t| t.ok()) {
-        ole_methods_sub(
-            Some(&typeinfo),
-            referenced_type.typeinfo(),
-            &mut methods,
-            mask,
-        )?;
+    let parents = Parents::new(&typeinfo, unsafe { &*type_attr });
+    for parent in parents.filter_map(|t| t.ok()) {
+        ole_methods_sub(Some(&typeinfo), parent.typeinfo(), &mut methods, mask)?;
     }
     unsafe { typeinfo.ReleaseTypeAttr(type_attr) };
     Ok(methods)

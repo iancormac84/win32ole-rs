@@ -59,6 +59,19 @@ impl OleTypeData {
             type_attr,
         })
     }
+    pub fn from_typeinfo(typeinfo: ITypeInfo) -> windows::core::Result<OleTypeData> {
+        let mut name = BSTR::default();
+        unsafe { typeinfo.GetDocumentation(-1, Some(&mut name), None, ptr::null_mut(), None) }?;
+        let name = name.to_string();
+
+        let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
+
+        Ok(OleTypeData {
+            typeinfo,
+            name,
+            type_attr: NonNull::new(type_attr).unwrap(),
+        })
+    }
     pub fn typeinfo(&self) -> &ITypeInfo {
         &self.typeinfo
     }

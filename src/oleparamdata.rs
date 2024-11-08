@@ -1,8 +1,11 @@
 use std::ptr::NonNull;
 
-use windows::Win32::System::{
-    Com::{ITypeInfo, ELEMDESC, FUNCDESC},
-    Ole::{PARAMFLAGS, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT, PARAMFLAG_FRETVAL},
+use windows::{
+    core::BSTR,
+    Win32::System::{
+        Com::{ITypeInfo, ELEMDESC, FUNCDESC},
+        Ole::{PARAMFLAGS, PARAMFLAG_FHASDEFAULT, PARAMFLAG_FIN, PARAMFLAG_FOPT, PARAMFLAG_FOUT, PARAMFLAG_FRETVAL},
+    },
 };
 
 use crate::{
@@ -146,29 +149,30 @@ fn oleparam_ole_param_from_index(
     let func_desc = unsafe { typeinfo.GetFuncDesc(method_index) }?;
     let func_desc = NonNull::new(func_desc).unwrap();
 
-    let mut cmaxnames = unsafe { func_desc.as_ref() }.cParams as u32 + 1;
-    let mut bstrs = Vec::with_capacity(cmaxnames as usize);
-    let result = unsafe { typeinfo.GetNames(func_desc.as_ref().memid, &mut bstrs, &mut cmaxnames) };
+    let cmaxnames = unsafe { func_desc.as_ref() }.cParams as u32 + 1;
+    let mut bstrs = vec![BSTR::default(); cmaxnames as usize];
+    let mut len = 0;
+    let result = unsafe { typeinfo.GetNames(func_desc.as_ref().memid, &mut bstrs, &mut len) };
     if let Err(error) = result {
         unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
         return Err(Error::Custom(format!(
             "ITypeInfo::GetNames call failed: {error}"
         )));
     }
-    bstrs.remove(0);
-    if param_index < 1 || bstrs.len() as u32 <= param_index as u32 {
+    if param_index < 1 || len <= param_index as u32 {
         unsafe { typeinfo.ReleaseFuncDesc(func_desc.as_ptr()) };
         return Err(Error::Custom(format!(
-            "index of param must be in 1..{}",
+            "index of param must be in the range 1..{}",
             bstrs.len()
         )));
     }
 
+    let name = bstrs[param_index as usize].to_string();
     Ok(OleParamData {
         typeinfo,
         method_index,
         index: param_index as u32 - 1,
-        name: bstrs[param_index as usize].to_string(),
+        name,
         func_desc,
     })
 }
@@ -189,7 +193,6 @@ mod tests {
         let m_geticonlocation_params = m_geticonlocation.params();
         let m_geticonlocation_param = &m_geticonlocation_params[0];
         assert!(m_geticonlocation_param.is_ok());
-        //let param_pbs = param_pbs.unwrap();
 
         let ole_type1 = crate::OleTypeData::new("Microsoft HTML Object Library", "FontNames");
         assert!(ole_type1.is_ok());
@@ -235,5 +238,49 @@ mod tests {
         assert_eq!(param.name(), "OverWriteFiles");
         //assert_eq!(WIN32OLE::Param, param.class());
         //assert_eq!(true, param.default());
+
+        assert_eq!(param_source.as_ref().unwrap().name(), "Source");
+        assert_eq!(param_key.as_ref().unwrap().name(), "Key");
+
+        let param_source_ole_type = param_source.as_ref().unwrap().ole_type();
+        assert!(param_source_ole_type.is_ok());
+        let param_source_ole_type = param_source_ole_type.unwrap();
+        assert_eq!(param_source_ole_type, "BSTR");
+        let param_key_ole_type = param_key.as_ref().unwrap().ole_type();
+        assert!(param_key_ole_type.is_ok());
+        let param_key_ole_type = param_key_ole_type.unwrap();
+        assert_eq!(param_key_ole_type, "VARIANT");
+
+        let param_source_ole_type_detail = param_source.as_ref().unwrap().ole_type_detail();
+        assert!(param_source_ole_type_detail.is_ok());
+        let param_source_ole_type_detail = param_source_ole_type_detail.unwrap();
+        assert_eq!(param_source_ole_type_detail, ["BSTR"]);
+        let param_key_ole_type_detail = param_key.as_ref().unwrap().ole_type_detail();
+        assert!(param_key_ole_type_detail.is_ok());
+        let param_key_ole_type_detail = param_key_ole_type_detail.unwrap();
+        assert_eq!(param_key_ole_type_detail, ["PTR", "VARIANT"]);
+
+        let param_source_input = param_source.as_ref().unwrap().input();
+        assert_eq!(param_source_input, true);
+        let m_geticonlocation_param_input = m_geticonlocation_param.as_ref().unwrap().input();
+        assert_eq!(m_geticonlocation_param_input, false);
+
+        let param_source_output = param_source.as_ref().unwrap().output();
+        assert_eq!(param_source_output, false);
+        let m_geticonlocation_param_output = m_geticonlocation_param.as_ref().unwrap().output();
+        assert_eq!(m_geticonlocation_param_output, true);
+
+        let param_source_optional = param_source.as_ref().unwrap().optional();
+        assert_eq!(param_source_optional, false);
+        let param_overwritefiles_optional = param_overwritefiles.as_ref().unwrap().optional();
+        assert_eq!(param_overwritefiles_optional, true);
+
+        let param_source_retval = param_source.as_ref().unwrap().retval();
+        assert_eq!(param_source_retval, false);
+        let m_count_param_retval = m_count_param.as_ref().unwrap().retval();
+        assert_eq!(m_count_param_retval, true);
+
+        /*assert_eq!(param_source.default, nil);
+        assert_eq!(param_overwritefiles.default, true);*/
     }
 }
