@@ -4,7 +4,7 @@ use crate::{
 };
 use std::{marker::PhantomData, ptr};
 use windows::{
-    core::{Interface, BSTR, GUID},
+    core::{Interface, BSTR, GUID, HSTRING},
     Win32::{
         Foundation::RPC_E_CHANGED_MODE,
         System::{
@@ -18,7 +18,6 @@ use windows::{
         },
     },
 };
-use windows_core::HSTRING;
 
 /// Initialize a new multithreaded apartment (MTA) runtime. This will ensure
 /// that an MTA is running for the process. Every new thread will implicitly
@@ -81,8 +80,9 @@ pub fn ole_initialized() {
     OLE_INITIALIZED.with(|_| {});
 }
 
-pub fn get_class_id<H: Into<HSTRING>>(h: H) -> Result<GUID> {
-    let prog_id = h.into();
+pub fn get_class_id<S: AsRef<str>>(s: S) -> Result<GUID> {
+    let prog_id = s.as_ref();
+    let prog_id = HSTRING::from(prog_id);
 
     unsafe {
         match CLSIDFromProgID(&prog_id) {
@@ -99,16 +99,9 @@ pub fn get_class_id<H: Into<HSTRING>>(h: H) -> Result<GUID> {
     }
 }
 
-pub fn create_instance<T: Interface>(clsid: &GUID) -> Result<T> {
+pub fn create_instance<T: Interface>(clsid: &GUID) -> windows::core::Result<T> {
     let flags = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER;
-    unsafe { Ok(CoCreateInstance(clsid, None, flags)?) }
-}
-
-pub fn create_com_object<H: Into<HSTRING>, T: Interface>(h: H) -> Result<T> {
-    ole_initialized();
-    let class_id = get_class_id(h)?;
-
-    create_instance(&class_id)
+    unsafe { CoCreateInstance(clsid, None, flags) }
 }
 
 pub fn ole_typedesc2val(

@@ -1,30 +1,35 @@
-use std::ptr;
+use std::{ffi::OsStr, os::windows::ffi::OsStrExt, ptr};
 
 use windows::{
     core::{Interface, BSTR, GUID, PCWSTR},
     Win32::{
-        Foundation::{DISP_E_EXCEPTION, DISP_E_PARAMNOTFOUND, DISP_E_TYPEMISMATCH},
+        Foundation::{DISP_E_EXCEPTION, DISP_E_PARAMNOTFOUND, DISP_E_TYPEMISMATCH, ERROR_SUCCESS},
         Globalization::GetUserDefaultLCID,
         System::{
             Com::{
-                IDispatch, ITypeInfo, ITypeLib, DISPATCH_FLAGS, DISPATCH_METHOD,
-                DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT, DISPPARAMS, EXCEPINFO, INVOKE_FUNC,
-                INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT, INVOKE_PROPERTYPUTREF,
+                CLSIDFromProgID, CLSIDFromString, CoCreateInstanceEx, CoGetClassObject,
+                CreateBindCtx, IDispatch, ITypeInfo, ITypeLib, MkParseDisplayName,
+                CLSCTX_INPROC_SERVER, CLSCTX_LOCAL_SERVER, CLSCTX_REMOTE_SERVER, COSERVERINFO,
+                DISPATCH_FLAGS, DISPATCH_METHOD, DISPATCH_PROPERTYGET, DISPATCH_PROPERTYPUT,
+                DISPPARAMS, EXCEPINFO, INVOKE_FUNC, INVOKE_PROPERTYGET, INVOKE_PROPERTYPUT,
+                INVOKE_PROPERTYPUTREF, MULTI_QI,
             },
             Environment::ExpandEnvironmentStringsW,
-            Ole::DISPID_PROPERTYPUT,
+            Ole::{GetActiveObject, IClassFactory2, DISPID_PROPERTYPUT},
+            Registry::{RegConnectRegistryW, HKEY, HKEY_LOCAL_MACHINE},
             Variant::VARIANT,
         },
     },
 };
-use windows_core::HSTRING;
+use windows_core::{HRESULT, HSTRING, PWSTR};
 use windows_registry::{Key, Type};
 
 use crate::{
     error::{ComArgumentErrorType, Error, OleError, Result},
+    ole_initialized,
     olemethoddata::{ole_methods_from_typeinfo, OleMethodData},
     types::OleClassNames,
-    util::{create_com_object, get_class_id},
+    util::{create_instance, get_class_id},
     OleTypeData, OleTypeLibData,
 };
 
@@ -49,10 +54,88 @@ pub struct OleData {
     pub dispatch: IDispatch,
 }
 impl OleData {
-    pub fn new<H: Into<HSTRING>>(prog_id: H) -> Result<Self> {
-        Ok(OleData {
-            dispatch: create_com_object(prog_id)?,
-        })
+    /// Returns a new OLE Automation object.
+    /// The first argument `svr_name` specifies the OLE Automation server and should be a GUID (CLSID) or PROGID.
+    ///
+    pub fn new<S: AsRef<str>>(svr_name: S, host: Option<S>, license: Option<S>) -> Result<Self> {
+        ole_initialized();
+        let svr_name = svr_name.as_ref();
+        if let Some(host) = host {
+            let host = host.as_ref();
+            return ole_create_dcom(svr_name, host /*, others*/);
+        }
+
+        /* get CLSID from OLE server name */
+        let clsid = get_class_id(svr_name)?;
+        println!("We made the class id, which is {clsid:?}");
+
+        let result = match license {
+            None => {
+                /* get IDispatch interface */
+                println!("About to create the instance");
+                create_instance(&clsid)
+            }
+            Some(license) => {
+                let class_factory: IClassFactory2 = unsafe {
+                    CoGetClassObject(&clsid, CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER, None)?
+                };
+                let license = license.as_ref();
+                let bstrkey = BSTR::from(license);
+                unsafe { class_factory.CreateInstanceLic(None, None, &bstrkey) }
+            }
+        };
+        println!("We have an IDispatch or error: {result:?}");
+        if let Err(error) = result {
+            return Err(OleError::runtime(
+                error,
+                format!("failed to create WIN32OLE object from `{svr_name}`"),
+            )
+            .into());
+        }
+        let dispatch = result.unwrap();
+
+        Ok(OleData { dispatch })
+    }
+
+    /* TODO: will have to figure out if the extra arguments are really necessary for the Rust
+       implementation. The signature for the Ruby function is `fole_s_connect(int argc, VALUE *argv, VALUE self)`
+       and then inside the function there is `rb_scan_args(argc, argv, "1*", &svr_name, &others);`
+       The `svr_name` is a mandatory argument and it's extracted from `argv`. There is a splatted argument that goes
+       into `others`. `self` in the function signature is passed to `create_win32ole_object(self, pDispatch, argc, argv)`
+       which allows the creation of the oledata object. I don't see any use of `argc` and `argv` in this particular
+       call to `create_win32ole_object`.
+    */
+    pub fn connect<S: AsRef<str>>(svr_name: S /*, VALUE *argv, VALUE self*/) -> Result<Self> {
+        ole_initialized();
+        let svr_name = svr_name.as_ref();
+
+        /* get CLSID from OLE server name */
+        let clsid = get_class_id(svr_name);
+        if clsid.is_err() {
+            return ole_bind_obj(svr_name);
+        }
+
+        let clsid = clsid.unwrap();
+
+        let mut unknown = None;
+        let result = unsafe { GetActiveObject(&clsid, None, &mut unknown) };
+        if let Err(error) = result {
+            return Err(
+                OleError::runtime(error, format!("OLE server `{svr_name}` not running")).into(),
+            );
+        }
+        let unknown = unknown.unwrap();
+        let dispatch: windows::core::Result<IDispatch> = unknown.cast();
+        if let Err(error) = dispatch {
+            return Err(OleError::runtime(
+                error,
+                format!("failed to create WIN32OLE server `{svr_name}`"),
+            )
+            .into());
+        }
+        let dispatch = dispatch.unwrap();
+
+        Ok(OleData { dispatch })
     }
     pub fn get_ids_of_names<H: Into<HSTRING> + Copy>(&self, names: &[H]) -> Result<Vec<i32>> {
         let namelen = names.len();
@@ -162,7 +245,13 @@ impl OleData {
         Ok(ret_type_info.unwrap())
     }
     pub fn ole_query_interface<H: Into<HSTRING>>(&self, str_iid: H) -> Result<OleData> {
-        let iid = get_class_id(str_iid)?;
+        let str_iid = str_iid.into();
+        let iid = match unsafe { CLSIDFromString(&str_iid) } {
+            Ok(guid) => guid,
+            Err(error) => {
+                return Err(OleError::runtime(error, format!("invalid iid: `{}`", str_iid)).into())
+            }
+        };
         let mut dispatch_interface = ptr::null_mut();
         let result = unsafe { self.dispatch.query(&iid, &mut dispatch_interface) };
         let result = result.ok();
@@ -285,73 +374,122 @@ pub unsafe fn reg_get_val<N: AsRef<PCWSTR>>(key: &Key, subkey: N) -> Result<Stri
     Ok(data.to_string())
 }
 
-/*fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> windows::core::Result<()> {
+fn ole_bind_obj<H: Into<HSTRING>>(
+    moniker: H, /*int argc, VALUE *argv, VALUE self*/
+) -> Result<OleData> {
+    ole_initialized();
+    let buf = moniker.into();
+
+    let mut eaten = 0;
+
+    let bind_ctx = unsafe { CreateBindCtx(0) };
+    if let Err(error) = bind_ctx {
+        return Err(OleError::runtime(error, "failed to create bind context").into());
+    }
+    let bind_ctx = bind_ctx.unwrap();
+    let mut moniker = None;
+
+    let result = unsafe { MkParseDisplayName(&bind_ctx, &buf, &mut eaten, &mut moniker) };
+    if let Err(error) = result {
+        return Err(
+            OleError::runtime(error, "failed to parse display name of moniker `{buf}`").into(),
+        );
+    }
+    let moniker = moniker.unwrap();
+
+    let result: windows::core::Result<IDispatch> = unsafe { moniker.BindToObject(&bind_ctx, None) };
+    if let Err(error) = result {
+        return Err(OleError::runtime(error, "failed to bind moniker `buf`").into());
+    }
+    let dispatch = result.unwrap();
+    Ok(OleData { dispatch })
+}
+
+fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> Result<GUID> {
     let host = host.into();
-    let mut hlm = ptr::null_mut();
+    let hlm = ptr::null_mut();
     let result = unsafe { RegConnectRegistryW(&host, HKEY::from(HKEY_LOCAL_MACHINE), hlm) };
     if result != ERROR_SUCCESS {
-        return Err(windows::core::Error::from_hresult(HRESULT::from_win32(result.0)));
+        return Err(windows::core::Error::from_hresult(HRESULT::from_win32(result.0)).into());
     };
     let mut subkey = String::from("SOFTWARE\\Classes\\");
     subkey.push_str(com.as_ref());
     subkey.push_str("\\CLSID");
-    let hlm = unsafe { Key::from_raw(&hlm) };
+    let hlm = unsafe { Key::from_raw((*hlm).0) };
     let result = hlm.open(subkey);
     if let Err(error) = result {
-        return Err(error);
+        return Err(error.into());
     } else {
-        len = sizeof(clsid);
-        err = RegQueryValueEx(hpid, "", NULL, &dwtype, (BYTE *)clsid, &len);
-        if (err == ERROR_SUCCESS && dwtype == REG_SZ) {
-            pbuf = ole_mb2wc(clsid, -1, cWIN32OLE_cp);
-            hr = CLSIDFromString(pbuf, pclsid);
-            SysFreeString(pbuf);
+        let hpid = result.unwrap();
+        let result = hpid.get_string("");
+        if let Ok(value) = result {
+            let type_ = hpid.get_type("");
+            if let Ok(type_) = type_ {
+                if type_ == Type::String {
+                    let value_hstring = HSTRING::from(value);
+                    match unsafe { CLSIDFromString(&value_hstring) } {
+                        Ok(guid) => Ok(guid),
+                        Err(error) => Err(OleError::runtime(
+                            error,
+                            format!("unknown OLE server: `{value_hstring}`"),
+                        )
+                        .into()),
+                    }
+                } else {
+                    unreachable!()
+                }
+            } else {
+                return Err(type_.unwrap_err().into());
+            }
+        } else {
+            return Err(result.unwrap_err().into());
         }
-        else {
-            hr = HRESULT_FROM_WIN32(err);
-        }
-        RegCloseKey(hpid);
     }
-    RegCloseKey(hlm);
-    return hr;
 }
 
-fn ole_create_dcom(VALUE self, VALUE ole, VALUE host, VALUE others)
-{
-    HRESULT hr;
-    CLSID   clsid;
-    OLECHAR *pbuf;
+fn ole_create_dcom<S: AsRef<str>>(ole: S, host: S) -> Result<OleData> {
+    let host = host.as_ref();
+    let ole = ole.as_ref();
 
-    COSERVERINFO serverinfo;
-    MULTI_QI multi_qi;
-    DWORD clsctx = CLSCTX_REMOTE_SERVER;
+    let clsctx = CLSCTX_REMOTE_SERVER;
+    let ole_hstring = HSTRING::from(ole);
+    let clsid = match unsafe { CLSIDFromProgID(&ole_hstring) } {
+        Ok(clsid) => Ok(clsid),
+        Err(_) => match clsid_from_remote(host, ole) {
+            Ok(clsid) => Ok(clsid),
+            Err(_) => unsafe { CLSIDFromString(&ole_hstring) },
+        },
+    };
 
-    pbuf  = ole_vstr2wc(ole);
-    hr = CLSIDFromProgID(pbuf, &clsid);
-    if (FAILED(hr))
-        hr = clsid_from_remote(host, ole, &clsid);
-    if (FAILED(hr))
-        hr = CLSIDFromString(pbuf, &clsid);
-    SysFreeString(pbuf);
-    if (FAILED(hr))
-        ole_raise(hr, eWIN32OLERuntimeError,
-                  "unknown OLE server: `%s'",
-                  StringValuePtr(ole));
-    memset(&serverinfo, 0, sizeof(COSERVERINFO));
-    serverinfo.pwszName = ole_vstr2wc(host);
-    memset(&multi_qi, 0, sizeof(MULTI_QI));
-    multi_qi.pIID = &IID_IDispatch;
-    hr = gCoCreateInstanceEx(&clsid, NULL, clsctx, &serverinfo, 1, &multi_qi);
-    SysFreeString(serverinfo.pwszName);
-    if (FAILED(hr))
-        ole_raise(hr, eWIN32OLERuntimeError,
-                  "failed to create DCOM server `%s' in `%s'",
-                  StringValuePtr(ole),
-                  StringValuePtr(host));
+    if let Err(error) = clsid {
+        return Err(OleError::runtime(error, format!("unknown OLE server: `{ole}`")).into());
+    }
 
-    ole_set_member(self, (IDispatch*)multi_qi.pItf);
-    return self;
-}*/
+    let clsid = clsid.unwrap();
+    let mut host_vec = OsStr::new(host)
+        .encode_wide()
+        .chain(Some(0).into_iter())
+        .collect::<Vec<_>>();
+    let mut serverinfo = COSERVERINFO::default();
+    serverinfo.pwszName = PWSTR::from_raw(host_vec.as_mut_ptr());
+    let mut multi_qi = MULTI_QI::default();
+    multi_qi.pIID = &IDispatch::IID;
+    let mut multi_qi_arr = vec![multi_qi; 1];
+    let result =
+        unsafe { CoCreateInstanceEx(&clsid, None, clsctx, Some(&serverinfo), &mut multi_qi_arr) };
+    if let Err(error) = result {
+        return Err(OleError::runtime(
+            error,
+            format!("failed to create DCOM server `{ole}` in `{host}`"),
+        )
+        .into());
+    }
+
+    let multi_qi = multi_qi_arr.pop().unwrap();
+    Ok(OleData {
+        dispatch: multi_qi.pItf.as_ref().unwrap().cast::<IDispatch>().unwrap(),
+    })
+}
 
 /*pub enum HelpTarget<'a> {
     OleType(OleTypeData),
@@ -436,7 +574,7 @@ fn ole_show_help_<S: AsRef<OsStr>>(helpfile: S, helpcontext: usize) -> Result<HW
 mod tests {
     #[test]
     fn test_methods() {
-        let obj = super::OleData::new("Scripting.Dictionary");
+        let obj = super::OleData::new("Scripting.Dictionary", None, None);
         assert!(obj.is_ok());
         let obj = obj.unwrap();
 
