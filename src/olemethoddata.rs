@@ -191,15 +191,12 @@ impl OleMethodData {
     }
     pub fn is_event(&self) -> bool {
         if self.owner_typeinfo.is_none() {
-            println!("self.owner_typeinfo is None");
             return false;
         }
         if self.owner_type_attr.is_none() {
-            println!("self.owner_type_attr is None");
             return false;
         }
         if unsafe { self.owner_type_attr.unwrap().as_ref().typekind } != TKIND_COCLASS {
-            println!("self.owner_type_attr isn't TKIND_COCLASS");
             return false;
         }
         let mut event = false;
@@ -211,7 +208,6 @@ impl OleMethodData {
         for referenced_type in referenced_types.filter_map(|t| t.ok()) {
             if referenced_type.is_source() {
                 let name = referenced_type.name();
-                println!("referenced_type.name is {name:?}");
                 let Ok(name) = name else {
                     continue;
                 };
@@ -231,7 +227,6 @@ impl OleMethodData {
     }
     pub fn params(&self) -> Vec<Result<OleParamData>> {
         let cparams = unsafe { self.func_desc.as_ref().cParams };
-        println!("cparams is {cparams}");
         let cmaxnames = cparams as u32 + 1;
         let mut bstrs = vec![BSTR::default(); cmaxnames as usize];
         let mut len = 0;
@@ -239,14 +234,12 @@ impl OleMethodData {
             self.typeinfo
                 .GetNames(self.func_desc.as_ref().memid, &mut bstrs, &mut len)
         };
-        println!("len is {len}");
+
         if result.is_err() {
-            println!("result is error: {result:?}");
             return vec![];
         }
         let mut params = vec![];
 
-        println!("We are just about to compare cparams to 0");
         if cparams > 0 {
             for i in 1..bstrs.len() as u32 {
                 let param =
@@ -340,124 +333,98 @@ mod tests {
 
     #[test]
     fn test_win32ole_method() {
-        println!("1");
         let ole_type = super::OleTypeData::new("Microsoft Shell Controls And Automation", "Shell");
         assert!(ole_type.is_ok());
         let ole_type = ole_type.unwrap();
 
-        println!("2");
         let m_open = super::OleMethodData::new(&ole_type, "Open");
         assert!(m_open.is_ok());
         let m_open = m_open.unwrap();
         assert!(m_open.is_some());
         let m_open = m_open.unwrap();
 
-        println!("3");
         let m_namespace = super::OleMethodData::new(&ole_type, "NameSpace");
         assert!(m_namespace.is_ok());
         let m_namespace = m_namespace.unwrap();
         assert!(m_namespace.is_some());
         let m_namespace = m_namespace.unwrap();
 
-        println!("4");
         let m_parent = super::OleMethodData::new(&ole_type, "Parent");
         assert!(m_parent.is_ok());
         let m_parent = m_parent.unwrap();
         assert!(m_parent.is_some());
         let m_parent = m_parent.unwrap();
 
-        println!("5");
         let m_invoke = super::OleMethodData::new(&ole_type, "Invoke");
         assert!(m_invoke.is_ok());
         let m_invoke = m_invoke.unwrap();
         assert!(m_invoke.is_some());
         let m_invoke = m_invoke.unwrap();
 
-        println!("6");
         let m_browse_for_folder = super::OleMethodData::new(&ole_type, "BrowseForFolder");
         assert!(m_browse_for_folder.is_ok());
         let m_browse_for_folder = m_browse_for_folder.unwrap();
         assert!(m_browse_for_folder.is_some());
         let m_browse_for_folder = m_browse_for_folder.unwrap();
 
-        println!("7");
         let ole_type1 = super::OleTypeData::new("Microsoft Scripting Runtime", "File");
         assert!(ole_type1.is_ok());
         let ole_type1 = ole_type1.unwrap();
 
-        println!("8");
         let m_file_name = super::OleMethodData::new(&ole_type1, "Name");
         assert!(m_file_name.is_ok());
         let m_file_name = m_file_name.unwrap();
         assert!(m_file_name.is_some());
         let m_file_name = m_file_name.unwrap();
 
-        println!("9");
         assert_eq!(m_open.name(), "Open");
 
-        println!("10");
-        println!("{}", m_open.return_type());
         assert_eq!(m_open.return_type(), "VOID");
-        println!("10a");
-        println!("{}", m_namespace.return_type());
         assert_eq!(m_namespace.return_type(), "Folder");
 
-        println!("11");
         assert_eq!(m_open.return_vtype(), VARENUM(24));
         assert_eq!(m_namespace.return_vtype(), VARENUM(26));
 
-        println!("12");
         assert_eq!(m_open.return_type_detail(), ["VOID"]);
         assert_eq!(
             m_namespace.return_type_detail(),
             ["PTR", "USERDEFINED", "Folder"]
         );
 
-        println!("13");
         assert_eq!(m_open.invoke_kind(), "FUNC");
         assert_eq!(m_namespace.invoke_kind(), "FUNC");
         assert_eq!(m_parent.invoke_kind(), "PROPERTYGET");
 
-        println!("14");
         assert_eq!(m_namespace.invkind(), INVOKEKIND(1));
         assert_eq!(m_parent.invkind(), INVOKEKIND(2));
 
-        println!("15");
         assert!(m_namespace.helpstring().is_ok());
         assert_eq!(
             m_namespace.helpstring().unwrap(),
             "Get special folder from ShellSpecialFolderConstants"
         );
 
-        println!("16");
         assert!(m_namespace.helpfile().is_ok());
         assert_eq!(m_namespace.helpfile().unwrap(), "");
 
-        println!("17");
         assert!(m_namespace.helpcontext().is_ok());
         assert_eq!(m_namespace.helpcontext().unwrap(), 0);
         assert!(m_file_name.helpcontext().is_ok());
         assert_eq!(m_file_name.helpcontext().unwrap(), 2181996);
 
-        println!("18");
         assert_eq!(m_namespace.dispid(), 1610743810);
 
         assert!(m_invoke.offset_vtbl().is_ok());
         assert_eq!(m_invoke.offset_vtbl().unwrap(), 48);
 
-        println!("19");
         assert_eq!(m_open.size_params(), 1);
         assert_eq!(m_browse_for_folder.size_params(), 4);
 
-        println!("20");
         assert_eq!(m_open.size_opt_params(), 0);
         assert_eq!(m_browse_for_folder.size_opt_params(), 1);
 
-        println!("21");
         assert_eq!(m_browse_for_folder.params().len(), 4);
         assert!(m_browse_for_folder.params().iter().all(|p| p.is_ok()));
-
-        println!("22");
     }
 
     #[test]

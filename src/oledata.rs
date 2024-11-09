@@ -16,7 +16,7 @@ use windows::{
             },
             Environment::ExpandEnvironmentStringsW,
             Ole::{GetActiveObject, IClassFactory2, DISPID_PROPERTYPUT},
-            Registry::{RegConnectRegistryW, HKEY, HKEY_LOCAL_MACHINE},
+            Registry::{RegConnectRegistryW, HKEY_LOCAL_MACHINE},
             Variant::VARIANT,
         },
     },
@@ -67,12 +67,10 @@ impl OleData {
 
         /* get CLSID from OLE server name */
         let clsid = get_class_id(svr_name)?;
-        println!("We made the class id, which is {clsid:?}");
 
         let result = match license {
             None => {
                 /* get IDispatch interface */
-                println!("About to create the instance");
                 create_instance(&clsid)
             }
             Some(license) => {
@@ -84,7 +82,7 @@ impl OleData {
                 unsafe { class_factory.CreateInstanceLic(None, None, &bstrkey) }
             }
         };
-        println!("We have an IDispatch or error: {result:?}");
+
         if let Err(error) = result {
             return Err(OleError::runtime(
                 error,
@@ -408,7 +406,7 @@ fn ole_bind_obj<H: Into<HSTRING>>(
 fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> Result<GUID> {
     let host = host.into();
     let hlm = ptr::null_mut();
-    let result = unsafe { RegConnectRegistryW(&host, HKEY::from(HKEY_LOCAL_MACHINE), hlm) };
+    let result = unsafe { RegConnectRegistryW(&host, HKEY_LOCAL_MACHINE, hlm) };
     if result != ERROR_SUCCESS {
         return Err(windows::core::Error::from_hresult(HRESULT::from_win32(result.0)).into());
     };
@@ -418,7 +416,7 @@ fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> Result
     let hlm = unsafe { Key::from_raw((*hlm).0) };
     let result = hlm.open(subkey);
     if let Err(error) = result {
-        return Err(error.into());
+        Err(error.into())
     } else {
         let hpid = result.unwrap();
         let result = hpid.get_string("");
@@ -439,10 +437,10 @@ fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> Result
                     unreachable!()
                 }
             } else {
-                return Err(type_.unwrap_err().into());
+                Err(type_.unwrap_err().into())
             }
         } else {
-            return Err(result.unwrap_err().into());
+            Err(result.unwrap_err().into())
         }
     }
 }
@@ -468,12 +466,16 @@ fn ole_create_dcom<S: AsRef<str>>(ole: S, host: S) -> Result<OleData> {
     let clsid = clsid.unwrap();
     let mut host_vec = OsStr::new(host)
         .encode_wide()
-        .chain(Some(0).into_iter())
+        .chain(Some(0))
         .collect::<Vec<_>>();
-    let mut serverinfo = COSERVERINFO::default();
-    serverinfo.pwszName = PWSTR::from_raw(host_vec.as_mut_ptr());
-    let mut multi_qi = MULTI_QI::default();
-    multi_qi.pIID = &IDispatch::IID;
+    let serverinfo = COSERVERINFO {
+        pwszName: PWSTR::from_raw(host_vec.as_mut_ptr()),
+        ..Default::default()
+    };
+    let multi_qi = MULTI_QI {
+        pIID: &IDispatch::IID,
+        ..Default::default()
+    };
     let mut multi_qi_arr = vec![multi_qi; 1];
     let result =
         unsafe { CoCreateInstanceEx(&clsid, None, clsctx, Some(&serverinfo), &mut multi_qi_arr) };
