@@ -1,9 +1,14 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ole_type =
-        win32ole::OleTypeData::new("{13709620-C279-11CE-A49E-444553540000}", "Shell").unwrap();
-    let methods = ole_type.ole_methods().unwrap();
-    for method in methods {
+    let word =
+        win32ole::OleData::new("Word.Application", None, None).unwrap();
+    let methods = word.ole_methods().unwrap();
+    for method in methods.iter() {
         println!("{}", method.name());
     }
+    let mut visible_property = word.get("Visible").unwrap();
+    println!("visible_property is {visible_property}");
+    let vt = visible_property.vt();
+    println!("vt is {vt:?}");
+    //visible_property.Anonymous.Anonymous.
     Ok(())
 }
