@@ -142,8 +142,7 @@ impl OleData {
             let a = &names[i].into();
             wnames[i] = PCWSTR(a.as_ptr());
         }
-
-        let mut dispids = 0;
+        let mut dispids = vec![0; namelen];
 
         unsafe {
             self.dispatch.GetIDsOfNames(
@@ -151,18 +150,16 @@ impl OleData {
                 wnames.as_ptr(),
                 wnames.len() as u32,
                 GetUserDefaultLCID(),
-                &mut dispids,
+                dispids.as_mut_ptr()
             )
         }?;
 
-        let ids = unsafe { Vec::from_raw_parts(&mut dispids, wnames.len(), wnames.len()) };
-
-        Ok(ids)
+        Ok(dispids)
     }
     pub fn responds_to<H: Into<HSTRING>>(&self, method: H) -> bool {
         let method = method.into();
         let methods = [PCWSTR(method.as_ptr())];
-        let mut dispids = 0;
+        let mut dispids = vec![0; 1];
 
         unsafe {
             self.dispatch
@@ -171,7 +168,7 @@ impl OleData {
                     methods.as_ptr(),
                     1,
                     GetUserDefaultLCID(),
-                    &mut dispids,
+                    dispids.as_mut_ptr(),
                 )
                 .is_ok()
         }

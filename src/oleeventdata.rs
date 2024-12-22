@@ -3,7 +3,7 @@ use std::ptr;
 use windows::{
     core::{implement, Interface, BSTR, GUID},
     Win32::{
-        Foundation::{DISP_E_BADINDEX, E_NOINTERFACE, HWND},
+        Foundation::{DISP_E_BADINDEX, E_NOINTERFACE},
         Globalization::GetUserDefaultLCID,
         System::{
             Com::{
@@ -18,17 +18,59 @@ use windows::{
         },
     },
 };
+use windows_core::IUnknown;
 
 use crate::{error::Result, OleData};
 
+#[implement(IDispatch)]
 pub struct IEventSinkObject {
-    event_sink: EventSink,
-    m_ref: u32,
     m_iid: GUID,
     m_event_id: u64,
     typeinfo: ITypeInfo,
 }
 
+impl IDispatch_Impl for IEventSinkObject_Impl {
+    fn GetTypeInfoCount(&self) -> windows::core::Result<u32> {
+        Ok(0)
+    }
+
+    fn GetTypeInfo(&self, _itinfo: u32, _lcid: u32) -> windows::core::Result<ITypeInfo> {
+        Err(DISP_E_BADINDEX.into())
+    }
+
+    fn GetIDsOfNames(
+        &self,
+        _riid: *const windows::core::GUID,
+        rgsznames: *const windows::core::PCWSTR,
+        cnames: u32,
+        _lcid: u32,
+        rgdispid: *mut i32,
+    ) -> windows::core::Result<()> {
+        return unsafe { self.typeinfo.GetIDsOfNames(rgsznames, cnames, rgdispid) };
+    }
+
+    fn Invoke(
+        &self,
+        dispidmember: i32,
+        riid: *const windows::core::GUID,
+        lcid: u32,
+        wflags: windows::Win32::System::Com::DISPATCH_FLAGS,
+        pdispparams: *const windows::Win32::System::Com::DISPPARAMS,
+        pvarresult: *mut windows::Win32::System::Variant::VARIANT,
+        pexcepinfo: *mut windows::Win32::System::Com::EXCEPINFO,
+        puargerr: *mut u32,
+    ) -> windows::core::Result<()> {
+        let mut names = vec![BSTR::default(); 1];
+        let mut pcnames = 0;
+        let result = unsafe { self.typeinfo.GetNames(dispidmember, &mut names, &mut pcnames) };
+        if result.is_err() {
+            return Ok(());
+        }
+
+    }
+}
+
+#[repr(C)]
 pub struct OleEventData {
     cookie: u32,
     connection_point: IConnectionPoint,
@@ -45,7 +87,7 @@ impl Drop for OleEventData {
 fn ole_msg_loop() {
     let mut msg = MSG::default();
     unsafe {
-        while PeekMessageW(&mut msg, HWND(ptr::null_mut()), 0, 0, PM_REMOVE).as_bool() {
+        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -142,45 +184,7 @@ impl Drop for ITypeInfoData<'_> {
     }
 }
 
-#[implement(IDispatch)]
-pub struct EventSink;
-
-impl IDispatch_Impl for EventSink_Impl {
-    fn GetTypeInfoCount(&self) -> windows::core::Result<u32> {
-        Ok(0)
-    }
-
-    fn GetTypeInfo(&self, _itinfo: u32, _lcid: u32) -> windows::core::Result<ITypeInfo> {
-        Err(DISP_E_BADINDEX.into())
-    }
-
-    fn GetIDsOfNames(
-        &self,
-        riid: *const windows::core::GUID,
-        rgsznames: *const windows::core::PCWSTR,
-        cnames: u32,
-        lcid: u32,
-        rgdispid: *mut i32,
-    ) -> windows::core::Result<()> {
-        return unsafe { self.0.typeinfo.GetIDsOfNames(rgsznames, cnames, rgdispid) };
-    }
-
-    fn Invoke(
-        &self,
-        dispidmember: i32,
-        riid: *const windows::core::GUID,
-        lcid: u32,
-        wflags: windows::Win32::System::Com::DISPATCH_FLAGS,
-        pdispparams: *const windows::Win32::System::Com::DISPPARAMS,
-        pvarresult: *mut windows::Win32::System::Variant::VARIANT,
-        pexcepinfo: *mut windows::Win32::System::Com::EXCEPINFO,
-        puargerr: *mut u32,
-    ) -> windows::core::Result<()> {
-        todo!()
-    }
-}
-
-/*fn ev_advise(oledata: &OleData, itf: Option<&str>) -> Result<()> {
+fn ev_advise(oledata: &OleData, itf: Option<&str>) -> Result<OleEventData> {
     let guid_info = if itf.is_some() {
         //Creation of piid is just to appease the function signature's demands
         let piid = GUID::new().unwrap();
@@ -191,15 +195,23 @@ impl IDispatch_Impl for EventSink_Impl {
     let Ok(guid_info) = guid_info else {
         return Err(guid_info.unwrap_err().into());
     };
-    let connection_point_container = ptr::null();
+    let mut connection_point_container = ptr::null_mut();
     let result = unsafe { oledata.dispatch.query(&IConnectionPointContainer::IID, &mut connection_point_container) };
     let result = result.ok();
     if let Err(error) = result {
         return Err(error.into());
     }
-    let connection_point_container = unsafe { <IConnectionPointContainer as Vtable>::from_raw(connection_point_container as *mut _) };
-    let connection_point = unsafe { connection_point_container.FindConnectionPoint(&guid_info.guid.unwrap()) }?;
-}*/
+    let connection_point_container = unsafe { IConnectionPointContainer::from_raw(connection_point_container) };
+    let connection_point = unsafe { connection_point_container.FindConnectionPoint(&guid_info.guid.unwrap())? };
+    let typeinfo = guid_info.typeinfo.unwrap();
+    let iid = guid_info.guid.unwrap();
+    let iev = IEventSinkObject {
+        m_iid: iid,
+        m_event_id: todo!(),
+        typeinfo,
+    };
+    let cookie = unsafe { connection_point.Advise(&IUnknown::from(iev)) };
+}
 
 fn find_coclass<'a>(typeinfo: &ITypeInfo, typeattr: &TYPEATTR) -> Result<ITypeInfoData<'a>> {
     let mut typelib = None;
@@ -360,3 +372,51 @@ fn find_default_source(ole: &OleData) -> Result<GuidInfo> {
         typeinfo: Some(pptypeinfo),
     })
 }
+
+/*fn ole_search_event_at(array: &[u32], ev: u32) -> isize {
+    let mut ret: isize = -1;
+    for i in 0..array.len() {
+        let event = array[i];
+        let event_name = event[1];
+        if event_name.is_none() && ev.is_none() {
+            ret = i;
+            break;
+        } else if /*(RB_TYPE_P(ev, T_STRING) &&
+                 RB_TYPE_P(event_name, T_STRING) &&*/
+                 ev == event_name {
+            ret = i;
+            break;
+        }
+    }
+}
+
+fn ole_search_event(array: &[u32], ev: u32, is_default: &mut bool) -> u32 {
+    *is_default = false;
+
+    for i in 0..array.len() {
+        let event = array[i];
+        let event_name = event[1];
+        if event_name.is_none() {
+            *is_default = true;
+            return event;
+        } else if ev == event_name {
+            *is_default = false;
+            return event;
+        }
+    }
+}
+
+fn ole_search_handler_method(handler, VALUE ev, is_default: &mut bool)
+{
+    *is_default_handler = false;
+    mid = rb_to_id(rb_sprintf("on%"PRIsVALUE, ev));
+    if (rb_respond_to(handler, mid)) {
+        return mid;
+    }
+    mid = rb_intern("method_missing");
+    if (rb_respond_to(handler, mid)) {
+        *is_default_handler = TRUE;
+        return mid;
+    }
+    return Qnil;
+}*/
