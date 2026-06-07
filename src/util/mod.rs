@@ -91,7 +91,7 @@ pub fn get_class_id<S: AsRef<str>>(s: S) -> Result<GUID> {
                 Ok(guid) => Ok(guid),
                 Err(error) => Err(OleError::runtime(
                     error,
-                    format!("unknown OLE server: `{}`", prog_id),
+                    format!("unknown OLE server: `{}`", prog_id.display()),
                 )
                 .into()),
             },
@@ -212,11 +212,15 @@ pub fn ole_usertype2val(
     if result.is_err() {
         return None;
     }
-    let type_ = bstrname.to_string();
-    if let Some(typedetails) = typedetails {
-        typedetails.push(type_.clone());
+    match String::try_from(bstrname) {
+        Err(_) => return None,
+        Ok(str) => {
+            if let Some(typedetails) = typedetails {
+                typedetails.push(str.clone());
+            }
+            Some(str)
+        }
     }
-    Some(type_)
 }
 
 pub(crate) fn ole_docinfo_from_type(

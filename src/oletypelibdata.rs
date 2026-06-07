@@ -573,13 +573,13 @@ fn make_version_str(major: &str, minor: &str) -> Option<String> {
 fn name_from_typelib(typelib: &ITypeLib) -> Result<String> {
     let mut bstrname = BSTR::default();
     unsafe { typelib.GetDocumentation(-1, None, Some(&mut bstrname), ptr::null_mut(), None) }?;
-    Ok(bstrname.to_string())
+    Ok(String::try_from(bstrname)?)
 }
 
 fn library_name_from_typelib(typelib: &ITypeLib) -> Result<String> {
     let mut bstrname = BSTR::default();
     unsafe { typelib.GetDocumentation(-1, Some(&mut bstrname), None, ptr::null_mut(), None) }?;
-    Ok(bstrname.to_string())
+    Ok(String::try_from(bstrname)?)
 }
 
 fn ole_types_from_typelib(typelib: &ITypeLib) -> Vec<Result<OleTypeData>> {

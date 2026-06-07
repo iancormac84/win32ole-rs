@@ -1,14 +1,10 @@
 use std::{
-    ffi::IntoStringError,
-    fmt, io,
-    num::{ParseFloatError, TryFromIntError},
-    str::Utf8Error,
-    string::FromUtf16Error,
+    ffi::IntoStringError, fmt, io, num::{ParseFloatError, TryFromIntError}, ops::Deref, str::Utf8Error, string::FromUtf16Error
 };
 
 use windows::{
-    core::HRESULT,
-    Win32::{Foundation::WIN32_ERROR, System::Com::EXCEPINFO},
+    core::{HRESULT, WIN32_ERROR},
+    Win32::System::Com::EXCEPINFO,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -163,7 +159,7 @@ impl From<IntoStringError> for Error {
 
 impl From<WIN32_ERROR> for Error {
     fn from(err: WIN32_ERROR) -> Self {
-        Error::Windows(HRESULT::from_win32(err.0).into())
+        Error::Windows(err.into())
     }
 }
 
@@ -171,16 +167,16 @@ impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         use Error::*;
         match self {
-            Io(ref err) => err.fmt(fmt),
-            Windows(ref err) => err.fmt(fmt),
-            Utf8(ref err) => err.fmt(fmt),
-            Utf16(ref err) => err.fmt(fmt),
-            ParseFloat(ref err) => err.fmt(fmt),
-            FromInt(ref err) => err.fmt(fmt),
-            IntoString(ref err) => err.fmt(fmt),
-            Generic(ref err) => err.fmt(fmt),
-            Custom(ref err) => err.fmt(fmt),
-            Ole(ref err) => err.fmt(fmt),
+            Io(err) => err.fmt(fmt),
+            Windows(err) => err.fmt(fmt),
+            Utf8(err) => err.fmt(fmt),
+            Utf16(err) => err.fmt(fmt),
+            ParseFloat(err) => err.fmt(fmt),
+            FromInt(err) => err.fmt(fmt),
+            IntoString(err) => err.fmt(fmt),
+            Generic(err) => err.fmt(fmt),
+            Custom(err) => err.fmt(fmt),
+            Ole(err) => err.fmt(fmt),
             Exception(excepinfo) => writeln!(fmt, "{}", ole_excepinfo2msg(excepinfo)),
             IDispatchArgument {
                 error_type,
@@ -201,13 +197,13 @@ fn ole_excepinfo2msg(excepinfo: &EXCEPINFO) -> String {
 
     let s = &excepinfo.bstrSource;
     let source = if !s.is_empty() {
-        s.to_string()
+        String::from_utf16_lossy(s.deref())
     } else {
         String::new()
     };
     let d = &excepinfo.bstrDescription;
     let description = if !d.is_empty() {
-        d.to_string()
+        String::from_utf16_lossy(d.deref())
     } else {
         String::new()
     };

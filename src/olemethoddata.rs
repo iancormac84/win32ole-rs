@@ -82,7 +82,7 @@ impl OleMethodData {
                         owner_typeinfo: owner_typeinfo.cloned(),
                         owner_type_attr,
                         typeinfo,
-                        name: bstrname.to_string(),
+                        name: String::try_from(bstrname)?,
                         index: method_index as u32,
                         func_desc,
                     }));
@@ -242,8 +242,12 @@ impl OleMethodData {
 
         if cparams > 0 {
             for i in 1..bstrs.len() as u32 {
-                let param =
-                    OleParamData::make(self, self.index, i - 1, bstrs[i as usize].to_string());
+                let param = {
+                    match String::try_from(&bstrs[i as usize]) {
+                        Err(error) => Err(error.into()),
+                        Ok(str) => OleParamData::make(self, self.index, i - 1, str)
+                    }
+                };
                 params.push(param);
             }
         }
@@ -256,7 +260,7 @@ impl OleMethodData {
         if self.is_event() {
             let mut name = BSTR::default();
             ole_docinfo_from_type(&self.typeinfo, Some(&mut name), None, ptr::null_mut(), None)?;
-            return Ok(Some(name.to_string()));
+            return Ok(Some(String::try_from(name)?));
         }
         Ok(None)
     }
@@ -317,7 +321,7 @@ fn ole_methods_sub(
                     owner_typeinfo: owner_typeinfo.cloned(),
                     owner_type_attr,
                     typeinfo,
-                    name: bstrname.to_string(),
+                    name: String::try_from(bstrname)?,
                     index: method_index as u32,
                     func_desc,
                 });

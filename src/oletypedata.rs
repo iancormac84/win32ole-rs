@@ -59,7 +59,7 @@ impl OleTypeData {
     pub fn from_typeinfo(typeinfo: ITypeInfo) -> windows::core::Result<OleTypeData> {
         let mut name = BSTR::default();
         unsafe { typeinfo.GetDocumentation(-1, Some(&mut name), None, ptr::null_mut(), None) }?;
-        let name = name.to_string();
+        let name = String::try_from(name)?;
 
         let type_attr = unsafe { typeinfo.GetTypeAttr() }?;
 
@@ -275,7 +275,7 @@ impl TryFrom<ITypeInfo> for OleTypeData {
 
         Ok(OleTypeData {
             typeinfo,
-            name: bstr.to_string(),
+            name: String::try_from(bstr)?,
             type_attr,
         })
     }

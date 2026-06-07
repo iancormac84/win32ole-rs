@@ -6,7 +6,7 @@ use windows_registry::{CLASSES_ROOT, HSTRING, LOCAL_MACHINE};
 
 pub mod error;
 mod oledata;
-mod oleeventdata;
+//mod oleeventdata;
 mod olemethoddata;
 mod oleparamdata;
 mod oletypedata;

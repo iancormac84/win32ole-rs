@@ -21,7 +21,7 @@ use windows::{
         },
     },
 };
-use windows_core::{HRESULT, HSTRING, PWSTR};
+use windows_core::{HSTRING, PWSTR};
 use windows_registry::{Key, Type};
 
 use crate::{
@@ -244,7 +244,7 @@ impl OleData {
         let iid = match unsafe { CLSIDFromString(&str_iid) } {
             Ok(guid) => guid,
             Err(error) => {
-                return Err(OleError::runtime(error, format!("invalid iid: `{}`", str_iid)).into())
+                return Err(OleError::runtime(error, format!("invalid iid: `{}`", str_iid.display())).into())
             }
         };
         let mut dispatch_interface = ptr::null_mut();
@@ -352,21 +352,21 @@ impl OleData {
 }
 
 pub unsafe fn reg_get_val<N: AsRef<PCWSTR>>(key: &Key, subkey: N) -> Result<String> {
-    let (ty, _) = key.raw_get_info(&subkey)?;
+    let (ty, _) = unsafe { key.raw_get_info(&subkey)? };
     let subkey = if subkey.as_ref().is_null() {
         "".to_string()
     } else {
-        subkey.as_ref().to_string().unwrap()
+        unsafe { subkey.as_ref().to_string().unwrap() }
     };
     let data = HSTRING::from(key.get_string(&subkey)?);
     if ty == Type::ExpandString {
-        let len = ExpandEnvironmentStringsW(&data, None);
+        let len = unsafe { ExpandEnvironmentStringsW(&data, None) };
         let mut expanded_data = vec![0; len as usize + 1];
         unsafe { ExpandEnvironmentStringsW(&data, Some(&mut expanded_data)) };
         let expanded_data_string = String::from_utf16_lossy(&expanded_data);
         return Ok(expanded_data_string);
     }
-    Ok(data.to_string())
+    Ok(String::try_from(data)?)
 }
 
 fn ole_bind_obj<H: Into<HSTRING>>(
@@ -405,7 +405,7 @@ fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> Result
     let hlm = ptr::null_mut();
     let result = unsafe { RegConnectRegistryW(&host, HKEY_LOCAL_MACHINE, hlm) };
     if result != ERROR_SUCCESS {
-        return Err(windows::core::Error::from_hresult(HRESULT::from_win32(result.0)).into());
+        return Err(result.into());
     };
     let mut subkey = String::from("SOFTWARE\\Classes\\");
     subkey.push_str(com.as_ref());
@@ -426,7 +426,7 @@ fn clsid_from_remote<H: Into<HSTRING>, S: AsRef<str>>(host: H, com: S) -> Result
                         Ok(guid) => Ok(guid),
                         Err(error) => Err(OleError::runtime(
                             error,
-                            format!("unknown OLE server: `{value_hstring}`"),
+                            format!("unknown OLE server: `{}`", value_hstring.display()),
                         )
                         .into()),
                     }

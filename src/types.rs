@@ -77,7 +77,7 @@ impl<'a> Iterator for OleClassNames<'a> {
         if let Err(error) = result {
             Some(Err(error))
         } else {
-            Some(Ok(bstrname.to_string()))
+            Some(String::try_from(bstrname).map_err(|e| e.into()))
         }
     }
 }
@@ -132,7 +132,7 @@ impl TypeImplDesc {
         };
         unsafe { self.typeinfo.ReleaseFuncDesc(funcdesc) };
         result?;
-        Ok(bstrname.to_string())
+        Ok(String::try_from(bstrname)?)
     }
 }
 

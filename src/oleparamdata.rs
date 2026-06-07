@@ -167,7 +167,7 @@ fn oleparam_ole_param_from_index(
         )));
     }
 
-    let name = bstrs[param_index as usize].to_string();
+    let name = String::try_from(&bstrs[param_index as usize])?;
     Ok(OleParamData {
         typeinfo,
         method_index,
